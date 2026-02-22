@@ -92,7 +92,8 @@ typedef enum ci_paint_type {
     CI_PAINT_COLOR = 0,
     CI_PAINT_LINEAR = 1,
     CI_PAINT_RADIAL = 2,
-    CI_PAINT_PATTERN = 3
+    CI_PAINT_PATTERN = 3,
+    CI_PAINT_CONIC = 4
 } ci_paint_type;
 
 /* ======== BASIC TYPES ======== */
@@ -256,6 +257,8 @@ void ci_canvas_set_linear_gradient(ci_canvas_t *ctx, ci_brush_type type,
 void ci_canvas_set_radial_gradient(ci_canvas_t *ctx, ci_brush_type type,
     float start_x, float start_y, float start_radius,
     float end_x, float end_y, float end_radius);
+void ci_canvas_set_conic_gradient(ci_canvas_t *ctx, ci_brush_type type,
+    float start_angle, float center_x, float center_y);
 void ci_canvas_add_color_stop(ci_canvas_t *ctx, ci_brush_type type,
     float offset, float red, float green, float blue, float alpha);
 void ci_canvas_set_pattern(ci_canvas_t *ctx, ci_brush_type type,
@@ -1731,7 +1734,13 @@ static ci_rgba_t ci_paint_pixel(ci_canvas_t *ctx, ci_xy_t point,
         size_t idx;
         float mix;
         ci_rgba_t delta;
-        if (brush->type == CI_PAINT_LINEAR) {
+        if (brush->type == CI_PAINT_CONIC) {
+            float dx = point.x - brush->start.x;
+            float dy = point.y - brush->start.y;
+            float angle = ci_atan2f(dy, dx) - brush->start_radius;
+            grad_offset = angle / 6.28318531f;
+            grad_offset = grad_offset - ci_floorf(grad_offset);
+        } else if (brush->type == CI_PAINT_LINEAR) {
             if (span == 0.0f)
                 return ci_rgba_make(0.0f, 0.0f, 0.0f, 0.0f);
             grad_offset = gradient / span;
@@ -2311,6 +2320,19 @@ void ci_canvas_set_radial_gradient(ci_canvas_t *ctx,
     br->end_radius = end_radius;
 }
 
+void ci_canvas_set_conic_gradient(ci_canvas_t *ctx,
+    ci_brush_type type, float start_angle,
+    float center_x, float center_y)
+{
+    ci_paint_brush_t *br = type == CI_FILL_STYLE ?
+        &ctx->fill_brush : &ctx->stroke_brush;
+    br->type = CI_PAINT_CONIC;
+    ci_rgba_array_clear(&br->colors);
+    ci_float_array_clear(&br->stops);
+    br->start = ci_xy_make(center_x, center_y);
+    br->start_radius = start_angle;
+}
+
 void ci_canvas_add_color_stop(ci_canvas_t *ctx, ci_brush_type type,
     float offset, float red, float green, float blue, float alpha)
 {
@@ -2321,7 +2343,8 @@ void ci_canvas_add_color_stop(ci_canvas_t *ctx, ci_brush_type type,
     size_t lo = 0, hi = br->stops.size;
     size_t idx;
     if ((br->type != CI_PAINT_LINEAR &&
-         br->type != CI_PAINT_RADIAL) ||
+         br->type != CI_PAINT_RADIAL &&
+         br->type != CI_PAINT_CONIC) ||
         offset < 0.0f || 1.0f < offset)
         return;
     while (lo < hi) {

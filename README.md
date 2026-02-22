@@ -330,6 +330,12 @@ CMake with a plain Makefile.
   `ci_canvas_clip()`, and `ci_canvas_is_point_in_path()`.  The original
   C++ library only supports the nonzero winding rule.
 
+- **Conic gradients** — `ci_canvas_set_conic_gradient(ctx, type, startAngle, cx, cy)`
+  creates a gradient that sweeps around a center point, per the WHATWG
+  `createConicGradient()` spec.  Color stops are added with
+  `ci_canvas_add_color_stop()` as with linear and radial gradients.
+  The original C++ library does not support conic gradients.
+
 ## License
 
 [ISC](LICENSE.txt) -- same as the original.
