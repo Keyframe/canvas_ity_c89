@@ -1303,6 +1303,67 @@ static void test_rectangle(ci_canvas_t *ctx, float width, float height)
     ci_canvas_stroke(ctx);
 }
 
+static void test_round_rect(ci_canvas_t *ctx, float width, float height)
+{
+    float r_uniform = 20.0f;
+    float radii4[4];
+    ci_canvas_set_color(ctx, CI_STROKE_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_set_line_width(ctx, 3.0f);
+    /* Uniform radius */
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.2f, 0.4f, 0.8f, 1.0f);
+    ci_canvas_begin_path(ctx);
+    ci_canvas_round_rectangle(ctx, 15.0f, 15.0f,
+        width - 30.0f, height * 0.4f - 10.0f, &r_uniform, 1);
+    ci_canvas_fill(ctx);
+    ci_canvas_stroke(ctx);
+    /* Four different corner radii */
+    radii4[0] = 5.0f;
+    radii4[1] = 15.0f;
+    radii4[2] = 30.0f;
+    radii4[3] = 40.0f;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.8f, 0.2f, 0.2f, 1.0f);
+    ci_canvas_begin_path(ctx);
+    ci_canvas_round_rectangle(ctx, 15.0f, height * 0.5f + 5.0f,
+        width - 30.0f, height * 0.4f - 10.0f, radii4, 4);
+    ci_canvas_fill(ctx);
+    ci_canvas_stroke(ctx);
+}
+
+static void test_round_rect_clamped(ci_canvas_t *ctx,
+    float width, float height)
+{
+    float r_large = 200.0f;
+    float r_zero = 0.0f;
+    float radii_mixed[4];
+    ci_canvas_set_color(ctx, CI_STROKE_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_set_line_width(ctx, 2.0f);
+    /* Large radius: creates pill/capsule shape */
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.2f, 0.8f, 0.2f, 1.0f);
+    ci_canvas_begin_path(ctx);
+    ci_canvas_round_rectangle(ctx, 20.0f, 15.0f,
+        width - 40.0f, 60.0f, &r_large, 1);
+    ci_canvas_fill(ctx);
+    ci_canvas_stroke(ctx);
+    /* Zero radius: sharp corners like regular rect */
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.4f, 0.4f, 0.8f, 1.0f);
+    ci_canvas_begin_path(ctx);
+    ci_canvas_round_rectangle(ctx, 20.0f, height * 0.33f + 10.0f,
+        width - 40.0f, 60.0f, &r_zero, 1);
+    ci_canvas_fill(ctx);
+    ci_canvas_stroke(ctx);
+    /* Mixed large radii on small rect: all get scaled down */
+    radii_mixed[0] = 100.0f;
+    radii_mixed[1] = 50.0f;
+    radii_mixed[2] = 30.0f;
+    radii_mixed[3] = 10.0f;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.8f, 0.8f, 0.2f, 1.0f);
+    ci_canvas_begin_path(ctx);
+    ci_canvas_round_rectangle(ctx, 30.0f, height * 0.66f + 5.0f,
+        width - 60.0f, 65.0f, radii_mixed, 4);
+    ci_canvas_fill(ctx);
+    ci_canvas_stroke(ctx);
+}
+
 static void test_fill(ci_canvas_t *ctx, float width, float height)
 {
     float radius = CI_MINF(width, height) * 0.45f;
@@ -2447,6 +2508,8 @@ static test_entry const tests[] = {
     { 0x5f042c5d, 256, 256, test_ellipse, "ellipse" },
     { 0x3c8a0970, 256, 256, test_ellipse_rotated, "ellipse_rotated" },
     { 0x7520990c, 256, 256, test_rectangle, "rectangle" },
+    { 0x7290ed64, 256, 256, test_round_rect, "round_rect" },
+    { 0x407aa93b, 256, 256, test_round_rect_clamped, "round_rect_clamped" },
     { 0xf1d774dc, 256, 256, test_fill, "fill" },
     { 0x5e6e6b75, 256, 256, fill_rounding, "fill_rounding" },
     { 0xf0cf6566, 256, 256, fill_converging, "fill_converging" },
