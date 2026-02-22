@@ -2243,6 +2243,263 @@ static void test_text_kerning_measure(ci_canvas_t *ctx,
     }
 }
 
+/* Build a font with a GPOS PairPos format 1 (individual pairs) kern table.
+   GPOS layout: Header -> ScriptList(DFLT) -> FeatureList(kern) ->
+   LookupList -> Lookup(type=2) -> PairPos(fmt=1) -> Coverage + PairSet */
+static unsigned char *make_gpos_fmt1_font(
+    unsigned char const *font, int font_bytes,
+    int left_glyph, int right_glyph, int kern_value,
+    int *out_bytes)
+{
+    int orig_tables = (font[4] << 8) | font[5];
+    int orig_dir_end = 12 + orig_tables * 16;
+    int new_tables = orig_tables + 1;
+    int new_dir_end = 12 + new_tables * 16;
+    int gpos_size = 80;
+    int body_size = font_bytes - orig_dir_end;
+    int total = new_dir_end + body_size + gpos_size;
+    unsigned char *out = (unsigned char *)calloc(1, (size_t)total);
+    int i, gpos_off, pos, sr, es, rs;
+    short kv;
+    if (!out) { *out_bytes = 0; return NULL; }
+    memcpy(out, font, 12);
+    out[4] = (unsigned char)((new_tables >> 8) & 0xff);
+    out[5] = (unsigned char)(new_tables & 0xff);
+    sr = 1; es = 0;
+    while (sr * 2 <= new_tables) { sr *= 2; ++es; }
+    sr *= 16;
+    rs = new_tables * 16 - sr;
+    out[6] = (unsigned char)((sr >> 8) & 0xff);
+    out[7] = (unsigned char)(sr & 0xff);
+    out[8] = (unsigned char)((es >> 8) & 0xff);
+    out[9] = (unsigned char)(es & 0xff);
+    out[10] = (unsigned char)((rs >> 8) & 0xff);
+    out[11] = (unsigned char)(rs & 0xff);
+    for (i = 0; i < orig_tables; ++i) {
+        int src_off = 12 + i * 16;
+        int old_off;
+        memcpy(out + 12 + i * 16, font + src_off, 16);
+        old_off = ((int)font[src_off + 8] << 24) |
+                  ((int)font[src_off + 9] << 16) |
+                  ((int)font[src_off + 10] << 8) |
+                  (int)font[src_off + 11];
+        old_off += 16;
+        out[12 + i * 16 + 8] = (unsigned char)((old_off >> 24) & 0xff);
+        out[12 + i * 16 + 9] = (unsigned char)((old_off >> 16) & 0xff);
+        out[12 + i * 16 + 10] = (unsigned char)((old_off >> 8) & 0xff);
+        out[12 + i * 16 + 11] = (unsigned char)(old_off & 0xff);
+    }
+    gpos_off = new_dir_end + body_size;
+    pos = 12 + orig_tables * 16;
+    /* 'GPOS' tag = 0x47504f53 */
+    out[pos + 0] = 0x47; out[pos + 1] = 0x50;
+    out[pos + 2] = 0x4f; out[pos + 3] = 0x53;
+    out[pos + 4] = 0; out[pos + 5] = 0;
+    out[pos + 6] = 0; out[pos + 7] = 0;
+    out[pos + 8] = (unsigned char)((gpos_off >> 24) & 0xff);
+    out[pos + 9] = (unsigned char)((gpos_off >> 16) & 0xff);
+    out[pos + 10] = (unsigned char)((gpos_off >> 8) & 0xff);
+    out[pos + 11] = (unsigned char)(gpos_off & 0xff);
+    out[pos + 12] = (unsigned char)((gpos_size >> 24) & 0xff);
+    out[pos + 13] = (unsigned char)((gpos_size >> 16) & 0xff);
+    out[pos + 14] = (unsigned char)((gpos_size >> 8) & 0xff);
+    out[pos + 15] = (unsigned char)(gpos_size & 0xff);
+    memcpy(out + new_dir_end, font + orig_dir_end, (size_t)body_size);
+    pos = gpos_off;
+    /* GPOS Header (10 bytes) */
+    out[pos + 0] = 0; out[pos + 1] = 1;   /* majorVersion = 1 */
+    out[pos + 2] = 0; out[pos + 3] = 0;   /* minorVersion = 0 */
+    out[pos + 4] = 0; out[pos + 5] = 10;  /* scriptListOffset */
+    out[pos + 6] = 0; out[pos + 7] = 30;  /* featureListOffset */
+    out[pos + 8] = 0; out[pos + 9] = 44;  /* lookupListOffset */
+    /* ScriptList at +10 (8 bytes) */
+    out[pos + 10] = 0; out[pos + 11] = 1;  /* scriptCount = 1 */
+    out[pos + 12] = 0x44; out[pos + 13] = 0x46;
+    out[pos + 14] = 0x4c; out[pos + 15] = 0x54; /* 'DFLT' */
+    out[pos + 16] = 0; out[pos + 17] = 8;  /* scriptOffset from SL */
+    /* Script at +18 (4 bytes) */
+    out[pos + 18] = 0; out[pos + 19] = 4;  /* defaultLangSysOff */
+    out[pos + 20] = 0; out[pos + 21] = 0;  /* langSysCount = 0 */
+    /* LangSys at +22 (8 bytes) */
+    out[pos + 22] = 0; out[pos + 23] = 0;  /* lookupOrder */
+    out[pos + 24] = 0xff; out[pos + 25] = 0xff; /* reqFeatIdx */
+    out[pos + 26] = 0; out[pos + 27] = 1;  /* featureIndexCount */
+    out[pos + 28] = 0; out[pos + 29] = 0;  /* featureIndex[0]=0 */
+    /* FeatureList at +30 (8 bytes) */
+    out[pos + 30] = 0; out[pos + 31] = 1;  /* featureCount = 1 */
+    out[pos + 32] = 0x6b; out[pos + 33] = 0x65;
+    out[pos + 34] = 0x72; out[pos + 35] = 0x6e; /* 'kern' */
+    out[pos + 36] = 0; out[pos + 37] = 8;  /* featureOffset from FL */
+    /* Feature at +38 (6 bytes) */
+    out[pos + 38] = 0; out[pos + 39] = 0;  /* featureParams */
+    out[pos + 40] = 0; out[pos + 41] = 1;  /* lookupIndexCount */
+    out[pos + 42] = 0; out[pos + 43] = 0;  /* lookupIndex[0]=0 */
+    /* LookupList at +44 (4 bytes) */
+    out[pos + 44] = 0; out[pos + 45] = 1;  /* lookupCount = 1 */
+    out[pos + 46] = 0; out[pos + 47] = 4;  /* lookupOffset from LL */
+    /* Lookup at +48 (8 bytes) */
+    out[pos + 48] = 0; out[pos + 49] = 2;  /* lookupType = PairPos */
+    out[pos + 50] = 0; out[pos + 51] = 0;  /* lookupFlag */
+    out[pos + 52] = 0; out[pos + 53] = 1;  /* subTableCount = 1 */
+    out[pos + 54] = 0; out[pos + 55] = 8;  /* subtableOff from Lk */
+    /* PairPos Format 1 at +56 (12 bytes header) */
+    out[pos + 56] = 0; out[pos + 57] = 1;  /* posFormat = 1 */
+    out[pos + 58] = 0; out[pos + 59] = 12; /* coverageOff from PP */
+    out[pos + 60] = 0; out[pos + 61] = 4;  /* vf1 = XAdvance */
+    out[pos + 62] = 0; out[pos + 63] = 0;  /* vf2 = none */
+    out[pos + 64] = 0; out[pos + 65] = 1;  /* pairSetCount = 1 */
+    out[pos + 66] = 0; out[pos + 67] = 18; /* pairSetOff from PP */
+    /* Coverage at +68 (6 bytes) */
+    out[pos + 68] = 0; out[pos + 69] = 1;  /* coverageFormat=1 */
+    out[pos + 70] = 0; out[pos + 71] = 1;  /* glyphCount = 1 */
+    out[pos + 72] = (unsigned char)((left_glyph >> 8) & 0xff);
+    out[pos + 73] = (unsigned char)(left_glyph & 0xff);
+    /* PairSet at +74 (6 bytes) */
+    out[pos + 74] = 0; out[pos + 75] = 1;  /* pairValueCount = 1 */
+    out[pos + 76] = (unsigned char)((right_glyph >> 8) & 0xff);
+    out[pos + 77] = (unsigned char)(right_glyph & 0xff);
+    kv = (short)(kern_value & 0xffff);
+    out[pos + 78] = (unsigned char)((kv >> 8) & 0xff);
+    out[pos + 79] = (unsigned char)(kv & 0xff);
+    *out_bytes = total;
+    return out;
+}
+
+/* Build a font with a GPOS PairPos format 2 (class-based) kern table.
+   left_glyph and right_glyph are assigned to class 1; kern_value
+   applied for class1->class1 pair. */
+static unsigned char *make_gpos_fmt2_font(
+    unsigned char const *font, int font_bytes,
+    int left_glyph, int right_glyph, int kern_value,
+    int *out_bytes)
+{
+    int orig_tables = (font[4] << 8) | font[5];
+    int orig_dir_end = 12 + orig_tables * 16;
+    int new_tables = orig_tables + 1;
+    int new_dir_end = 12 + new_tables * 16;
+    int gpos_size = 102;
+    int body_size = font_bytes - orig_dir_end;
+    int total = new_dir_end + body_size + gpos_size;
+    unsigned char *out = (unsigned char *)calloc(1, (size_t)total);
+    int i, gpos_off, pos, sr, es, rs;
+    short kv;
+    if (!out) { *out_bytes = 0; return NULL; }
+    memcpy(out, font, 12);
+    out[4] = (unsigned char)((new_tables >> 8) & 0xff);
+    out[5] = (unsigned char)(new_tables & 0xff);
+    sr = 1; es = 0;
+    while (sr * 2 <= new_tables) { sr *= 2; ++es; }
+    sr *= 16;
+    rs = new_tables * 16 - sr;
+    out[6] = (unsigned char)((sr >> 8) & 0xff);
+    out[7] = (unsigned char)(sr & 0xff);
+    out[8] = (unsigned char)((es >> 8) & 0xff);
+    out[9] = (unsigned char)(es & 0xff);
+    out[10] = (unsigned char)((rs >> 8) & 0xff);
+    out[11] = (unsigned char)(rs & 0xff);
+    for (i = 0; i < orig_tables; ++i) {
+        int src_off = 12 + i * 16;
+        int old_off;
+        memcpy(out + 12 + i * 16, font + src_off, 16);
+        old_off = ((int)font[src_off + 8] << 24) |
+                  ((int)font[src_off + 9] << 16) |
+                  ((int)font[src_off + 10] << 8) |
+                  (int)font[src_off + 11];
+        old_off += 16;
+        out[12 + i * 16 + 8] = (unsigned char)((old_off >> 24) & 0xff);
+        out[12 + i * 16 + 9] = (unsigned char)((old_off >> 16) & 0xff);
+        out[12 + i * 16 + 10] = (unsigned char)((old_off >> 8) & 0xff);
+        out[12 + i * 16 + 11] = (unsigned char)(old_off & 0xff);
+    }
+    gpos_off = new_dir_end + body_size;
+    pos = 12 + orig_tables * 16;
+    out[pos + 0] = 0x47; out[pos + 1] = 0x50;
+    out[pos + 2] = 0x4f; out[pos + 3] = 0x53;
+    out[pos + 4] = 0; out[pos + 5] = 0;
+    out[pos + 6] = 0; out[pos + 7] = 0;
+    out[pos + 8] = (unsigned char)((gpos_off >> 24) & 0xff);
+    out[pos + 9] = (unsigned char)((gpos_off >> 16) & 0xff);
+    out[pos + 10] = (unsigned char)((gpos_off >> 8) & 0xff);
+    out[pos + 11] = (unsigned char)(gpos_off & 0xff);
+    out[pos + 12] = (unsigned char)((gpos_size >> 24) & 0xff);
+    out[pos + 13] = (unsigned char)((gpos_size >> 16) & 0xff);
+    out[pos + 14] = (unsigned char)((gpos_size >> 8) & 0xff);
+    out[pos + 15] = (unsigned char)(gpos_size & 0xff);
+    memcpy(out + new_dir_end, font + orig_dir_end, (size_t)body_size);
+    pos = gpos_off;
+    /* GPOS Header (10 bytes) — identical to fmt1 */
+    out[pos + 0] = 0; out[pos + 1] = 1;
+    out[pos + 2] = 0; out[pos + 3] = 0;
+    out[pos + 4] = 0; out[pos + 5] = 10;
+    out[pos + 6] = 0; out[pos + 7] = 30;
+    out[pos + 8] = 0; out[pos + 9] = 44;
+    /* ScriptList at +10 */
+    out[pos + 10] = 0; out[pos + 11] = 1;
+    out[pos + 12] = 0x44; out[pos + 13] = 0x46;
+    out[pos + 14] = 0x4c; out[pos + 15] = 0x54;
+    out[pos + 16] = 0; out[pos + 17] = 8;
+    /* Script at +18 */
+    out[pos + 18] = 0; out[pos + 19] = 4;
+    out[pos + 20] = 0; out[pos + 21] = 0;
+    /* LangSys at +22 */
+    out[pos + 22] = 0; out[pos + 23] = 0;
+    out[pos + 24] = 0xff; out[pos + 25] = 0xff;
+    out[pos + 26] = 0; out[pos + 27] = 1;
+    out[pos + 28] = 0; out[pos + 29] = 0;
+    /* FeatureList at +30 */
+    out[pos + 30] = 0; out[pos + 31] = 1;
+    out[pos + 32] = 0x6b; out[pos + 33] = 0x65;
+    out[pos + 34] = 0x72; out[pos + 35] = 0x6e;
+    out[pos + 36] = 0; out[pos + 37] = 8;
+    /* Feature at +38 */
+    out[pos + 38] = 0; out[pos + 39] = 0;
+    out[pos + 40] = 0; out[pos + 41] = 1;
+    out[pos + 42] = 0; out[pos + 43] = 0;
+    /* LookupList at +44 */
+    out[pos + 44] = 0; out[pos + 45] = 1;
+    out[pos + 46] = 0; out[pos + 47] = 4;
+    /* Lookup at +48 */
+    out[pos + 48] = 0; out[pos + 49] = 2;
+    out[pos + 50] = 0; out[pos + 51] = 0;
+    out[pos + 52] = 0; out[pos + 53] = 1;
+    out[pos + 54] = 0; out[pos + 55] = 8;
+    /* PairPos Format 2 at +56 (16 bytes header) */
+    out[pos + 56] = 0; out[pos + 57] = 2;  /* posFormat = 2 */
+    out[pos + 58] = 0; out[pos + 59] = 24; /* coverageOff from PP */
+    out[pos + 60] = 0; out[pos + 61] = 4;  /* vf1 = XAdvance */
+    out[pos + 62] = 0; out[pos + 63] = 0;  /* vf2 = none */
+    out[pos + 64] = 0; out[pos + 65] = 30; /* classDef1Off from PP */
+    out[pos + 66] = 0; out[pos + 67] = 38; /* classDef2Off from PP */
+    out[pos + 68] = 0; out[pos + 69] = 2;  /* class1Count = 2 */
+    out[pos + 70] = 0; out[pos + 71] = 2;  /* class2Count = 2 */
+    /* Class matrix at +72 (8 bytes: 2×2 × 2 bytes xAdvance) */
+    out[pos + 72] = 0; out[pos + 73] = 0;  /* c0->c0 = 0 */
+    out[pos + 74] = 0; out[pos + 75] = 0;  /* c0->c1 = 0 */
+    out[pos + 76] = 0; out[pos + 77] = 0;  /* c1->c0 = 0 */
+    kv = (short)(kern_value & 0xffff);
+    out[pos + 78] = (unsigned char)((kv >> 8) & 0xff);
+    out[pos + 79] = (unsigned char)(kv & 0xff); /* c1->c1 = kern */
+    /* Coverage at +80 (6 bytes) */
+    out[pos + 80] = 0; out[pos + 81] = 1;
+    out[pos + 82] = 0; out[pos + 83] = 1;
+    out[pos + 84] = (unsigned char)((left_glyph >> 8) & 0xff);
+    out[pos + 85] = (unsigned char)(left_glyph & 0xff);
+    /* ClassDef1 at +86 (format 1, 8 bytes) */
+    out[pos + 86] = 0; out[pos + 87] = 1;  /* classFormat = 1 */
+    out[pos + 88] = (unsigned char)((left_glyph >> 8) & 0xff);
+    out[pos + 89] = (unsigned char)(left_glyph & 0xff);
+    out[pos + 90] = 0; out[pos + 91] = 1;  /* glyphCount = 1 */
+    out[pos + 92] = 0; out[pos + 93] = 1;  /* class = 1 */
+    /* ClassDef2 at +94 (format 1, 8 bytes) */
+    out[pos + 94] = 0; out[pos + 95] = 1;
+    out[pos + 96] = (unsigned char)((right_glyph >> 8) & 0xff);
+    out[pos + 97] = (unsigned char)(right_glyph & 0xff);
+    out[pos + 98] = 0; out[pos + 99] = 1;
+    out[pos + 100] = 0; out[pos + 101] = 1;
+    *out_bytes = total;
+    return out;
+}
+
 static void test_text_kerning_aat(ci_canvas_t *ctx,
     float width, float height)
 {
@@ -2299,6 +2556,54 @@ static void test_text_kerning_aat_measure(ci_canvas_t *ctx,
         ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 1.0f, 1.0f);
         ci_canvas_fill_rectangle(ctx, 0.05f * width, bar_y,
             w_kerned, 4.0f);
+        free(kerned_font);
+    }
+}
+
+static void test_text_kerning_gpos_fmt1(ci_canvas_t *ctx,
+    float width, float height)
+{
+    int idx, glyph_c, glyph_a, kerned_size;
+    unsigned char *kerned_font;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_set_font(ctx, font_a.data, (int)font_a.size, 0.2f * height);
+    idx = 0;
+    glyph_c = ci_character_to_glyph(ctx, "C", &idx);
+    idx = 0;
+    glyph_a = ci_character_to_glyph(ctx, "a", &idx);
+    ci_canvas_fill_text(ctx, "Canvas", 0.05f * width, 0.3f * height,
+        1.0e30f);
+    kerned_font = make_gpos_fmt1_font(font_a.data, (int)font_a.size,
+        glyph_c, glyph_a, -200, &kerned_size);
+    if (kerned_font) {
+        ci_canvas_set_font(ctx, kerned_font, kerned_size,
+            0.2f * height);
+        ci_canvas_fill_text(ctx, "Canvas", 0.05f * width,
+            0.7f * height, 1.0e30f);
+        free(kerned_font);
+    }
+}
+
+static void test_text_kerning_gpos_fmt2(ci_canvas_t *ctx,
+    float width, float height)
+{
+    int idx, glyph_c, glyph_a, kerned_size;
+    unsigned char *kerned_font;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_set_font(ctx, font_a.data, (int)font_a.size, 0.2f * height);
+    idx = 0;
+    glyph_c = ci_character_to_glyph(ctx, "C", &idx);
+    idx = 0;
+    glyph_a = ci_character_to_glyph(ctx, "a", &idx);
+    ci_canvas_fill_text(ctx, "Canvas", 0.05f * width, 0.3f * height,
+        1.0e30f);
+    kerned_font = make_gpos_fmt2_font(font_a.data, (int)font_a.size,
+        glyph_c, glyph_a, -200, &kerned_size);
+    if (kerned_font) {
+        ci_canvas_set_font(ctx, kerned_font, kerned_size,
+            0.2f * height);
+        ci_canvas_fill_text(ctx, "Canvas", 0.05f * width,
+            0.7f * height, 1.0e30f);
         free(kerned_font);
     }
 }
@@ -2827,6 +3132,8 @@ static test_entry const tests[] = {
     { 0xd9969c18, 256, 256, test_text_kerning_measure, "text_kerning_measure" },
     { 0x2c895307, 256, 256, test_text_kerning_aat, "text_kerning_aat" },
     { 0xd9969c18, 256, 256, test_text_kerning_aat_measure, "text_kerning_aat_measure" },
+    { 0x2c895307, 256, 256, test_text_kerning_gpos_fmt1, "text_kerning_gpos_fmt1" },
+    { 0x2c895307, 256, 256, test_text_kerning_gpos_fmt2, "text_kerning_gpos_fmt2" },
     { 0x78cb460c, 256, 256, test_draw_image, "draw_image" },
     { 0xb530077b, 256, 256, draw_image_matted, "draw_image_matted" },
     { 0xaf04e7a2, 256, 256, test_get_image_data, "get_image_data" },
