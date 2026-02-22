@@ -303,7 +303,7 @@ public API function.
 
 ```
 make          # build the test runner
-make test     # build and run all 76 tests
+make test     # build and run all 80 tests
 make clean    # remove build artifacts
 make lint     # C89 syntax check on the header
 make valgrind # run under valgrind
@@ -322,6 +322,13 @@ by [Andrew Kensler](https://github.com/a-e-k).  The rendering algorithms,
 architecture, and test suite design are his work.  This fork ports
 everything to strict C89, adds a backend abstraction layer, and replaces
 CMake with a plain Makefile.
+
+### Extensions beyond the original
+
+- **Evenodd fill rule** — `ci_canvas_set_fill_rule(ctx, CI_FILL_EVENODD)`
+  enables the alternate (even-odd) winding rule for `ci_canvas_fill()`,
+  `ci_canvas_clip()`, and `ci_canvas_is_point_in_path()`.  The original
+  C++ library only supports the nonzero winding rule.
 
 ## License
 
