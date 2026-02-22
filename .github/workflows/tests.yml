@@ -20,6 +20,10 @@ jobs:
         run: make test
       - name: Lint
         run: make lint
+      - name: NanoVG build and test
+        run: make -C nanovg test
+      - name: Build examples
+        run: make -C examples
 
   tests-windows:
     runs-on: windows-latest
@@ -36,3 +40,9 @@ jobs:
       - name: Lint
         shell: msys2 {0}
         run: make lint
+      - name: NanoVG build and test
+        shell: msys2 {0}
+        run: make -C nanovg test
+      - name: Build examples
+        shell: msys2 {0}
+        run: make -C examples

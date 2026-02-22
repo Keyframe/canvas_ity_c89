@@ -273,8 +273,8 @@ int main(void)
 - Clipping uses an antialiased sparse pixel mask rather than geometrically
     intersecting paths.  Therefore, it is not subpixel-accurate.
 - Text rendering is basic and mainly for convenience.  It only
-    supports left-to-right text and does not do hinting, kerning,
-    ligatures, text shaping, or text layout.
+    supports left-to-right text and does not do hinting, ligatures,
+    text shaping, or text layout.  Basic kerning is supported.
 - **TrueType font parsing is not secure.** It does some basic validity
     checking, but should only be used with known-good or sanitized fonts.
 - Parameter checking does not test for non-finite floating-point values.
@@ -303,7 +303,7 @@ public API function.
 
 ```
 make          # build the test runner
-make test     # build and run all 80 tests
+make test     # build and run all 92 tests
 make clean    # remove build artifacts
 make lint     # C89 syntax check on the header
 make valgrind # run under valgrind
@@ -358,6 +358,35 @@ CMake with a plain Makefile.
   `ci_canvas_measure_text()`.  The original C++ library does not
   apply kerning.
 
+## Examples
+
+The [`examples/`](examples/) directory contains standalone programs
+demonstrating each component:
+
+| Example | Description |
+|---------|-------------|
+| [`canvas_ity_example.c`](examples/canvas_ity_example.c) | Direct canvas_ity API: star with gradients, dashed strokes, drop shadows |
+| [`nanovg_example.c`](examples/nanovg_example.c) | NanoVG API backed by canvas_ity: shapes, gradients, alpha blending |
+| [`nanosvg_example.c`](examples/nanosvg_example.c) | NanoSVG parser + canvas_ity compositing from an inline SVG string |
+| [`tiger_example.c`](examples/tiger_example.c) | Classic Ghostscript tiger SVG rendered via NanoSVG + canvas_ity |
+
+```
+cd examples
+make          # build all examples
+make clean    # remove build artifacts
+```
+
+## NanoVG Integration
+
+An optional [NanoVG](https://github.com/memononen/nanovg) backend is available
+in the [`nanovg/`](nanovg/) directory.  It bridges NanoVG's 2D vector API to
+canvas_ity's rasterizer via a single-header backend (`nanovg_ci.h`).
+[NanoSVG](https://github.com/memononen/nanosvg) is bundled for optional SVG
+parsing.  All vendored code is C89-ported.  See [`nanovg/README.md`](nanovg/README.md)
+for usage and build instructions.
+
 ## License
 
-[ISC](LICENSE.txt) -- same as the original.
+[ISC](LICENSE.txt) for canvas_ity and all original code.  Vendored libraries
+in `nanovg/` retain their original licenses (zlib for NanoVG/NanoSVG, MIT/public
+domain for stb).  See [LICENSE.txt](LICENSE.txt) for details.
