@@ -1154,28 +1154,49 @@ static int ci_character_to_glyph(ci_canvas_t *ctx,
 
 static int ci_kern_pair_value(ci_canvas_t *ctx, int left, int right)
 {
-    int offset, n_tables, table, result;
+    int offset, version, n_tables, table, result;
     if (!ctx->face.kern)
         return 0;
     offset = ctx->face.kern;
-    if (ci_unsigned_16(&ctx->face.data, offset) != 0)
+    version = ci_unsigned_16(&ctx->face.data, offset);
+    if (version == 0) {
+        /* Microsoft kern table version 0 */
+        n_tables = ci_unsigned_16(&ctx->face.data, offset + 2);
+        offset += 4;
+    } else if (version == 1) {
+        /* Apple AAT kern table version 1 (0x00010000) */
+        n_tables = ci_signed_32(&ctx->face.data, offset + 4);
+        offset += 8;
+    } else {
         return 0;
-    n_tables = ci_unsigned_16(&ctx->face.data, offset + 2);
-    offset += 4;
+    }
     result = 0;
     for (table = 0; table < n_tables; ++table) {
-        int length = ci_unsigned_16(&ctx->face.data, offset + 2);
-        int coverage = ci_unsigned_16(&ctx->face.data, offset + 4);
-        int format = coverage >> 8;
+        int length, cov_raw, coverage, format, n_pairs, pairs_off;
+        int lo, hi;
+        unsigned long key;
+        if (version == 0) {
+            length = ci_unsigned_16(&ctx->face.data, offset + 2);
+            cov_raw = ci_unsigned_16(&ctx->face.data, offset + 4);
+            format = cov_raw >> 8;
+            coverage = cov_raw & 0xFF;
+            n_pairs = ci_unsigned_16(&ctx->face.data, offset + 6);
+            pairs_off = offset + 14;
+        } else {
+            length = ci_signed_32(&ctx->face.data, offset);
+            cov_raw = ci_unsigned_16(&ctx->face.data, offset + 4);
+            format = cov_raw & 0xFF;
+            coverage = cov_raw >> 8;
+            n_pairs = ci_unsigned_16(&ctx->face.data, offset + 8);
+            pairs_off = offset + 16;
+        }
         if (format == 0 && (coverage & 1) && !(coverage & 4)) {
-            int n_pairs = ci_unsigned_16(&ctx->face.data, offset + 6);
-            int lo = 0;
-            int hi = n_pairs - 1;
-            unsigned long key =
-                ((unsigned long)left << 16) | (unsigned long)right;
+            lo = 0;
+            hi = n_pairs - 1;
+            key = ((unsigned long)left << 16) | (unsigned long)right;
             while (lo <= hi) {
                 int mid = (lo + hi) / 2;
-                int pair_off = offset + 14 + mid * 6;
+                int pair_off = pairs_off + mid * 6;
                 unsigned long pair_key =
                     ((unsigned long)ci_unsigned_16(
                         &ctx->face.data, pair_off) << 16) |
