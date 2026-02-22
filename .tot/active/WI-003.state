@@ -1,7 +1,0 @@
-STATE=active
-STARTED=2026-02-22T17:22:01+01:00
-SCOPE: test/
-TYPE: feat
-SCOPE_EXPANDED: src/
-EXPAND_REASON: Fixed CI_CLAMP inverted-range bug in ci_paint_pixel that caused draw_image_matted hash mismatch
-EXPAND_TIME: 2026-02-22T18:32:24+01:00

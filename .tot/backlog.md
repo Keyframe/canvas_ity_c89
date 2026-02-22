@@ -27,7 +27,7 @@ Priorities: `P0` (critical), `P1` (high), `P2` (medium), `P3` (low)
   Criteria: CPU rasterizer behind function pointer/vtable abstraction; clear interface for future Vulkan/GPU swap-in; no functional regression
   Dependencies: WI-001
 
-- [ ] WI-003 [refactor] (P0) Port test suite to C89
+- [x] WI-003 [refactor] (P0) Port test suite to C89
   Scope: test/
   Criteria: test.c compiles with gcc -std=c89; all original test cases preserved; hash-based comparison works; all tests pass
   Dependencies: WI-001
