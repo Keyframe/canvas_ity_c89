@@ -22,7 +22,7 @@ Priorities: `P0` (critical), `P1` (high), `P2` (medium), `P3` (low)
   Criteria: Compiles with gcc -std=c89 -Wall -Wextra -Wpedantic -Werror; all C++ removed (no namespaces, classes, templates, std::vector, operator overloads); single-header with implementation guard; functionally equivalent output to original C++ version
   Dependencies: none
 
-- [ ] WI-002 [refactor] (P0) Add backend abstraction layer
+- [x] WI-002 [refactor] (P0) Add backend abstraction layer
   Scope: src/
   Criteria: CPU rasterizer behind function pointer/vtable abstraction; clear interface for future Vulkan/GPU swap-in; no functional regression
   Dependencies: WI-001
@@ -39,7 +39,7 @@ Priorities: `P0` (critical), `P1` (high), `P2` (medium), `P3` (low)
 
 ### Phase 2: WHATWG Canvas Extensions
 
-- [ ] WI-005 [feature] (P1) Add alternate fill rules (evenodd)
+- [x] WI-005 [feature] (P1) Add alternate fill rules (evenodd)
   Scope: src/
   Criteria: evenodd fill rule implemented per WHATWG spec; tests added and pass
   Dependencies: WI-004
