@@ -1,0 +1,4 @@
+build/
+*.o
+*.tga
+screenshot.png
