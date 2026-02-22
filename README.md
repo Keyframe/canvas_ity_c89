@@ -349,10 +349,11 @@ CMake with a plain Makefile.
   `roundRect()`.
 
 - **Text kerning** — TTF `kern` table (format 0) is automatically parsed
-  when a font is loaded via `ci_canvas_set_font()`.  Kerning adjustments
-  are applied in both `ci_canvas_fill_text()` / `ci_canvas_stroke_text()`
-  and `ci_canvas_measure_text()`.  The original C++ library does not
-  apply kerning.
+  when a font is loaded via `ci_canvas_set_font()`.  Both Microsoft
+  kern table version 0 and Apple AAT kern table version 1 are supported.
+  Kerning adjustments are applied in both `ci_canvas_fill_text()` /
+  `ci_canvas_stroke_text()` and `ci_canvas_measure_text()`.  The original
+  C++ library does not apply kerning.
 
 ## License
 
