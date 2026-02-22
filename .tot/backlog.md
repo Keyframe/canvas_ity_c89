@@ -32,7 +32,7 @@ Priorities: `P0` (critical), `P1` (high), `P2` (medium), `P3` (low)
   Criteria: test.c compiles with gcc -std=c89; all original test cases preserved; hash-based comparison works; all tests pass
   Dependencies: WI-001
 
-- [ ] WI-004 [chore] (P0) Replace CMake with Makefile
+- [x] WI-004 [chore] (P0) Replace CMake with Makefile
   Scope: Makefile
   Criteria: make, make test, make clean all work; sanitizer support; no CMake dependency
   Dependencies: WI-001, WI-003
