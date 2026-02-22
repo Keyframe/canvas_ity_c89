@@ -17,7 +17,7 @@ Priorities: `P0` (critical), `P1` (high), `P2` (medium), `P3` (low)
 
 ### Phase 1: C89 Port
 
-- [ ] WI-001 [refactor] (P0) Port canvas_ity.hpp to strict C89 single-header .h
+- [x] WI-001 [refactor] (P0) Port canvas_ity.hpp to strict C89 single-header .h
   Scope: src/
   Criteria: Compiles with gcc -std=c89 -Wall -Wextra -Wpedantic -Werror; all C++ removed (no namespaces, classes, templates, std::vector, operator overloads); single-header with implementation guard; functionally equivalent output to original C++ version
   Dependencies: none
