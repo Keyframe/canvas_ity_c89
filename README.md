@@ -336,6 +336,11 @@ CMake with a plain Makefile.
   `ci_canvas_add_color_stop()` as with linear and radial gradients.
   The original C++ library does not support conic gradients.
 
+- **Elliptical arcs** — `ci_canvas_ellipse(ctx, x, y, rx, ry, rotation, startAngle, endAngle, ccw)`
+  adds an elliptical arc to the current path, per the WHATWG `ellipse()`
+  spec.  Supports independent x/y radii and an arbitrary rotation angle.
+  The original C++ library only provides circular `arc()`.
+
 ## License
 
 [ISC](LICENSE.txt) -- same as the original.

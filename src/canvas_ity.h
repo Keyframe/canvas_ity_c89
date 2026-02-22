@@ -279,6 +279,10 @@ void ci_canvas_arc_to(ci_canvas_t *ctx,
     float x, float y, float radius);
 void ci_canvas_arc(ci_canvas_t *ctx, float x, float y, float radius,
     float start_angle, float end_angle, int counter_clockwise);
+void ci_canvas_ellipse(ci_canvas_t *ctx,
+    float x, float y, float radius_x, float radius_y,
+    float rotation, float start_angle, float end_angle,
+    int counter_clockwise);
 void ci_canvas_rectangle(ci_canvas_t *ctx,
     float x, float y, float width, float height);
 
@@ -2558,6 +2562,66 @@ void ci_canvas_arc(ci_canvas_t *ctx,
         ci_canvas_bezier_curve_to(ctx,
             c1.x, c1.y, c2.x, c2.y, pt2.x, pt2.y);
         centered_1 = centered_2;
+    }
+}
+
+void ci_canvas_ellipse(ci_canvas_t *ctx,
+    float x, float y, float radius_x, float radius_y,
+    float rotation, float start_angle, float end_angle,
+    int counter_clockwise)
+{
+    static float const tau = 6.28318531f;
+    float winding = counter_clockwise ? -1.0f : 1.0f;
+    float from = ci_fmodf(start_angle, tau);
+    float span = ci_fmodf(end_angle, tau) - from;
+    float cos_rot = ci_cosf(rotation);
+    float sin_rot = ci_sinf(rotation);
+    ci_xy_t ellipse_1;
+    float ex, ey;
+    int steps, step;
+    float segment, alpha;
+    if (radius_x < 0.0f || radius_y < 0.0f)
+        return;
+    if ((end_angle - start_angle) * winding >= tau)
+        span = tau * winding;
+    else if (span * winding < 0.0f)
+        span += tau * winding;
+    /* point on the ellipse: rotate( rx*cos(t), ry*sin(t) ) + center */
+    ex = ci_cosf(from);
+    ey = ci_sinf(from);
+    ellipse_1 = ci_xy_make(
+        radius_x * ex * cos_rot - radius_y * ey * sin_rot,
+        radius_x * ex * sin_rot + radius_y * ey * cos_rot);
+    ci_canvas_line_to(ctx, x + ellipse_1.x, y + ellipse_1.y);
+    if (span == 0.0f)
+        return;
+    steps = (int)CI_MAX(1.0f,
+        ci_roundf(16.0f / tau * span * winding));
+    segment = span / (float)steps;
+    alpha = 4.0f / 3.0f * ci_tanf(0.25f * segment);
+    for (step = 0; step < steps; ++step) {
+        float angle = from + (float)(step + 1) * segment;
+        float ca = ci_cosf(angle);
+        float sa = ci_sinf(angle);
+        /* tangent on the ellipse: rotate( -rx*sin(t), ry*cos(t) ) */
+        ci_xy_t tangent_1 = ci_xy_make(
+            -radius_x * ey * cos_rot - radius_y * ex * sin_rot,
+            -radius_x * ey * sin_rot + radius_y * ex * cos_rot);
+        ci_xy_t ellipse_2 = ci_xy_make(
+            radius_x * ca * cos_rot - radius_y * sa * sin_rot,
+            radius_x * ca * sin_rot + radius_y * sa * cos_rot);
+        ci_xy_t tangent_2 = ci_xy_make(
+            -radius_x * sa * cos_rot - radius_y * ca * sin_rot,
+            -radius_x * sa * sin_rot + radius_y * ca * cos_rot);
+        ci_xy_t pt1 = ci_xy_add(ci_xy_make(x, y), ellipse_1);
+        ci_xy_t pt2 = ci_xy_add(ci_xy_make(x, y), ellipse_2);
+        ci_xy_t c1 = ci_xy_add(pt1, ci_xy_scale(alpha, tangent_1));
+        ci_xy_t c2 = ci_xy_sub(pt2, ci_xy_scale(alpha, tangent_2));
+        ci_canvas_bezier_curve_to(ctx,
+            c1.x, c1.y, c2.x, c2.y, pt2.x, pt2.y);
+        ellipse_1 = ellipse_2;
+        ex = ca;
+        ey = sa;
     }
 }
 

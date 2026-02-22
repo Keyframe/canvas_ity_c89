@@ -1226,6 +1226,61 @@ static void test_arc(ci_canvas_t *ctx, float width, float height)
         }
 }
 
+static void test_ellipse(ci_canvas_t *ctx, float width, float height)
+{
+    int i, j;
+    for (i = 0; i < 4; ++i)
+        for (j = 0; j < 3; ++j)
+        {
+            float x = ((float)(j) + 0.5f) * width / 3.0f;
+            float y = ((float)(i) + 0.5f) * height / 4.0f;
+            float rx = CI_MINF(width, height) * 0.12f;
+            float ry = rx * 0.5f;
+            float start = (3.14159265f + 1.0e-6f) * (float)(i % 2);
+            float end = (3.14159265f + 1.0e-6f) * (1.0f + 0.5f * (float)(j));
+            int counter = i / 2;
+            ci_canvas_set_color(ctx, CI_STROKE_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+            ci_canvas_set_color(ctx, CI_FILL_STYLE, 1.0f, 0.0f, 0.0f, 1.0f);
+            ci_canvas_set_line_width(ctx, 4.0f);
+            ci_canvas_begin_path(ctx);
+            /* negative radius must be a no-op */
+            ci_canvas_ellipse(ctx, x, y, -rx, ry, 0.0f,
+                start, end, counter);
+            ci_canvas_ellipse(ctx, x, y, rx, ry, 0.0f,
+                start, end, counter);
+            ci_canvas_close_path(ctx);
+            ci_canvas_fill(ctx);
+            ci_canvas_stroke(ctx);
+        }
+}
+
+static void test_ellipse_rotated(ci_canvas_t *ctx, float width, float height)
+{
+    float cx = width * 0.5f;
+    float cy = height * 0.5f;
+    float rx = width * 0.35f;
+    float ry = height * 0.15f;
+    float pi = 3.14159265f;
+    float tau = 6.28318531f;
+    int i;
+    ci_canvas_set_line_width(ctx, 3.0f);
+    /* draw three rotated filled ellipses at 0, 60, 120 degrees */
+    for (i = 0; i < 3; ++i) {
+        float rot = (float)i * pi / 3.0f;
+        float r = (i == 0) ? 1.0f : 0.0f;
+        float g = (i == 1) ? 1.0f : 0.0f;
+        float b = (i == 2) ? 1.0f : 0.0f;
+        ci_canvas_set_color(ctx, CI_FILL_STYLE, r, g, b, 0.4f);
+        ci_canvas_set_color(ctx, CI_STROKE_STYLE, r, g, b, 1.0f);
+        ci_canvas_begin_path(ctx);
+        ci_canvas_ellipse(ctx, cx, cy, rx, ry, rot,
+            0.0f, tau, 0);
+        ci_canvas_close_path(ctx);
+        ci_canvas_fill(ctx);
+        ci_canvas_stroke(ctx);
+    }
+}
+
 static void test_rectangle(ci_canvas_t *ctx, float width, float height)
 {
     float y, x;
@@ -2389,6 +2444,8 @@ static test_entry const tests[] = {
     { 0x5f523029, 256, 256, test_bezier_curve_to, "bezier_curve_to" },
     { 0x1f847aaf, 256, 256, test_arc_to, "arc_to" },
     { 0x26457553, 256, 256, test_arc, "arc" },
+    { 0x5f042c5d, 256, 256, test_ellipse, "ellipse" },
+    { 0x3c8a0970, 256, 256, test_ellipse_rotated, "ellipse_rotated" },
     { 0x7520990c, 256, 256, test_rectangle, "rectangle" },
     { 0xf1d774dc, 256, 256, test_fill, "fill" },
     { 0x5e6e6b75, 256, 256, fill_rounding, "fill_rounding" },
