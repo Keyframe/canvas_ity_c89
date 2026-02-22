@@ -156,6 +156,7 @@ typedef struct ci_font_face {
     int head;
     int hhea;
     int hmtx;
+    int kern;
     int loca;
     int maxp;
     int os_2;
@@ -675,6 +676,7 @@ static void ci_path_to_lines(ci_canvas_t *ctx, int stroking);
 static void ci_add_glyph(ci_canvas_t *ctx, int glyph, float angular);
 static int ci_character_to_glyph(ci_canvas_t *ctx, char const *text,
     int *index);
+static int ci_kern_pair_value(ci_canvas_t *ctx, int left, int right);
 static void ci_text_to_lines(ci_canvas_t *ctx, char const *text,
     ci_xy_t position, float maximum_width, int stroking);
 static void ci_dash_lines(ci_canvas_t *ctx);
@@ -1148,6 +1150,57 @@ static int ci_character_to_glyph(ci_canvas_t *ctx,
     return 0;
 }
 
+/* ======== KERN PAIR LOOKUP ======== */
+
+static int ci_kern_pair_value(ci_canvas_t *ctx, int left, int right)
+{
+    int offset, n_tables, table, result;
+    if (!ctx->face.kern)
+        return 0;
+    offset = ctx->face.kern;
+    if (ci_unsigned_16(&ctx->face.data, offset) != 0)
+        return 0;
+    n_tables = ci_unsigned_16(&ctx->face.data, offset + 2);
+    offset += 4;
+    result = 0;
+    for (table = 0; table < n_tables; ++table) {
+        int length = ci_unsigned_16(&ctx->face.data, offset + 2);
+        int coverage = ci_unsigned_16(&ctx->face.data, offset + 4);
+        int format = coverage >> 8;
+        if (format == 0 && (coverage & 1) && !(coverage & 4)) {
+            int n_pairs = ci_unsigned_16(&ctx->face.data, offset + 6);
+            int lo = 0;
+            int hi = n_pairs - 1;
+            unsigned long key =
+                ((unsigned long)left << 16) | (unsigned long)right;
+            while (lo <= hi) {
+                int mid = (lo + hi) / 2;
+                int pair_off = offset + 14 + mid * 6;
+                unsigned long pair_key =
+                    ((unsigned long)ci_unsigned_16(
+                        &ctx->face.data, pair_off) << 16) |
+                    (unsigned long)ci_unsigned_16(
+                        &ctx->face.data, pair_off + 2);
+                if (pair_key == key) {
+                    int value = ci_signed_16(
+                        &ctx->face.data, pair_off + 4);
+                    if (coverage & 8)
+                        result = value;
+                    else
+                        result += value;
+                    break;
+                }
+                if (pair_key < key)
+                    lo = mid + 1;
+                else
+                    hi = mid - 1;
+            }
+        }
+        offset += length;
+    }
+    return result;
+}
+
 /* ======== TEXT TO LINES ======== */
 
 static void ci_text_to_lines(ci_canvas_t *ctx, char const *text,
@@ -1160,7 +1213,7 @@ static void ci_text_to_lines(ci_canvas_t *ctx, char const *text,
     float normalize;
     ci_xy_t scaling;
     ci_affine_matrix_t saved_fwd, saved_inv;
-    int hmetrics, place, glyph_idx;
+    int hmetrics, place, glyph_idx, prev_glyph;
     ci_xy_array_clear(&ctx->lines.points);
     ci_subpath_array_clear(&ctx->lines.subpaths);
     if (ctx->face.data.size == 0 || !text || maximum_width <= 0.0f)
@@ -1195,9 +1248,12 @@ static void ci_text_to_lines(ci_canvas_t *ctx, char const *text,
     saved_inv = ctx->inverse;
     hmetrics = ci_unsigned_16(&ctx->face.data, ctx->face.hhea + 34);
     place = 0;
+    prev_glyph = -1;
     for (glyph_idx = 0; text[glyph_idx];) {
         int glyph = ci_character_to_glyph(ctx, text, &glyph_idx);
         int entry;
+        if (prev_glyph >= 0)
+            place += ci_kern_pair_value(ctx, prev_glyph, glyph);
         ctx->forward = saved_fwd;
         ci_canvas_transform(ctx, scaling.x, 0.0f, 0.0f, -scaling.y,
             position.x + (float)place * scaling.x, position.y);
@@ -1205,6 +1261,7 @@ static void ci_text_to_lines(ci_canvas_t *ctx, char const *text,
         entry = CI_MIN(glyph, hmetrics - 1);
         place += ci_unsigned_16(&ctx->face.data,
             ctx->face.hmtx + entry * 4);
+        prev_glyph = glyph;
     }
     ctx->forward = saved_fwd;
     ctx->inverse = saved_inv;
@@ -2902,6 +2959,7 @@ int ci_canvas_set_font(ci_canvas_t *ctx,
         ctx->face.head = 0;
         ctx->face.hhea = 0;
         ctx->face.hmtx = 0;
+        ctx->face.kern = 0;
         ctx->face.loca = 0;
         ctx->face.maxp = 0;
         ctx->face.os_2 = 0;
@@ -2938,6 +2996,8 @@ int ci_canvas_set_font(ci_canvas_t *ctx,
                 ctx->face.hhea = place;
             else if (tag == 0x686d7478)
                 ctx->face.hmtx = place;
+            else if (tag == 0x6b65726e)
+                ctx->face.kern = place;
             else if (tag == 0x6c6f6361)
                 ctx->face.loca = place;
             else if (tag == 0x6d617870)
@@ -2985,17 +3045,21 @@ void ci_canvas_stroke_text(ci_canvas_t *ctx,
 float ci_canvas_measure_text(ci_canvas_t *ctx,
     char const *text)
 {
-    int hmetrics, width, index;
+    int hmetrics, width, index, prev_glyph;
     if (ctx->face.data.size == 0 || !text)
         return 0.0f;
     hmetrics = ci_unsigned_16(&ctx->face.data,
         ctx->face.hhea + 34);
     width = 0;
+    prev_glyph = -1;
     for (index = 0; text[index]; ) {
         int glyph = ci_character_to_glyph(ctx, text, &index);
         int entry = glyph < hmetrics - 1 ? glyph : hmetrics - 1;
+        if (prev_glyph >= 0)
+            width += ci_kern_pair_value(ctx, prev_glyph, glyph);
         width += ci_unsigned_16(&ctx->face.data,
             ctx->face.hmtx + entry * 4);
+        prev_glyph = glyph;
     }
     return (float)width * ctx->face.scale;
 }

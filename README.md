@@ -348,6 +348,12 @@ CMake with a plain Makefile.
   exceed edge lengths.  The original C++ library does not provide
   `roundRect()`.
 
+- **Text kerning** — TTF `kern` table (format 0) is automatically parsed
+  when a font is loaded via `ci_canvas_set_font()`.  Kerning adjustments
+  are applied in both `ci_canvas_fill_text()` / `ci_canvas_stroke_text()`
+  and `ci_canvas_measure_text()`.  The original C++ library does not
+  apply kerning.
+
 ## License
 
 [ISC](LICENSE.txt) -- same as the original.
