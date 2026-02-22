@@ -1529,6 +1529,110 @@ static void is_point_in_path_offscreen(ci_canvas_t *ctx, float width, float heig
     }
 }
 
+static void fill_evenodd(ci_canvas_t *ctx, float width, float height)
+{
+    /* Concentric circles, all wound the same direction.
+       Nonzero fills solid; evenodd alternates filled/unfilled rings. */
+    float cx = width * 0.5f;
+    float cy = height * 0.5f;
+    float radii[5];
+    int i;
+    radii[0] = CI_MINF(width, height) * 0.45f;
+    radii[1] = CI_MINF(width, height) * 0.36f;
+    radii[2] = CI_MINF(width, height) * 0.27f;
+    radii[3] = CI_MINF(width, height) * 0.18f;
+    radii[4] = CI_MINF(width, height) * 0.09f;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_set_fill_rule(ctx, CI_FILL_EVENODD);
+    ci_canvas_begin_path(ctx);
+    for (i = 0; i < 5; ++i) {
+        ci_canvas_move_to(ctx, cx + radii[i], cy);
+        ci_canvas_arc(ctx, cx, cy, radii[i], 0.0f, 6.28318531f, 0);
+        ci_canvas_close_path(ctx);
+    }
+    ci_canvas_fill(ctx);
+}
+
+static void fill_evenodd_star(ci_canvas_t *ctx, float width, float height)
+{
+    /* Five-pointed star drawn as a single self-intersecting polygon.
+       With evenodd, the center pentagon is unfilled. */
+    float cx = width * 0.5f;
+    float cy = height * 0.5f;
+    float r = CI_MINF(width, height) * 0.45f;
+    int order[5];
+    int i;
+    order[0] = 0; order[1] = 2; order[2] = 4; order[3] = 1; order[4] = 3;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_set_fill_rule(ctx, CI_FILL_EVENODD);
+    ci_canvas_begin_path(ctx);
+    for (i = 0; i < 5; ++i) {
+        float angle = (float)order[i] * 1.25663706f - 1.57079633f;
+        float px = cx + r * (float)cos((double)angle);
+        float py = cy + r * (float)sin((double)angle);
+        if (i == 0)
+            ci_canvas_move_to(ctx, px, py);
+        else
+            ci_canvas_line_to(ctx, px, py);
+    }
+    ci_canvas_close_path(ctx);
+    ci_canvas_fill(ctx);
+}
+
+static void clip_evenodd(ci_canvas_t *ctx, float width, float height)
+{
+    /* Clip with evenodd on concentric circles, then fill a rectangle.
+       Only the alternating rings should be visible. */
+    float cx = width * 0.5f;
+    float cy = height * 0.5f;
+    float radii[4];
+    int i;
+    radii[0] = CI_MINF(width, height) * 0.45f;
+    radii[1] = CI_MINF(width, height) * 0.33f;
+    radii[2] = CI_MINF(width, height) * 0.21f;
+    radii[3] = CI_MINF(width, height) * 0.09f;
+    ci_canvas_set_fill_rule(ctx, CI_FILL_EVENODD);
+    ci_canvas_begin_path(ctx);
+    for (i = 0; i < 4; ++i) {
+        ci_canvas_move_to(ctx, cx + radii[i], cy);
+        ci_canvas_arc(ctx, cx, cy, radii[i], 0.0f, 6.28318531f, 0);
+        ci_canvas_close_path(ctx);
+    }
+    ci_canvas_clip(ctx);
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_fill_rectangle(ctx, 0.0f, 0.0f, width, height);
+}
+
+static void is_point_in_path_evenodd(ci_canvas_t *ctx, float width, float height)
+{
+    /* Test is_point_in_path with evenodd on concentric rectangles.
+       Points in odd rings = inside, even rings = outside. */
+    int index;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 1.0f, 1.0f);
+    ci_canvas_set_color(ctx, CI_STROKE_STYLE, 1.0f, 1.0f, 1.0f, 1.0f);
+    ci_canvas_scale(ctx, width / 256.0f, height / 256.0f);
+    ci_canvas_set_fill_rule(ctx, CI_FILL_EVENODD);
+    ci_canvas_begin_path(ctx);
+    ci_canvas_rectangle(ctx, 16.0f, 16.0f, 224.0f, 224.0f);
+    ci_canvas_rectangle(ctx, 48.0f, 48.0f, 160.0f, 160.0f);
+    ci_canvas_rectangle(ctx, 80.0f, 80.0f, 96.0f, 96.0f);
+    ci_canvas_fill(ctx);
+    for (index = 0; index < 256; ++index)
+    {
+        int bits = index;
+        int inside;
+        float x, y;
+        bits = (bits << 1 & 0xaa) | (bits >> 1 & 0x55);
+        bits = (bits << 2 & 0xcc) | (bits >> 2 & 0x33);
+        bits = (bits << 4 & 0xf0) | (bits >> 4 & 0x0f);
+        x = (float)(bits);
+        y = (float)(index);
+        inside = ci_canvas_is_point_in_path(ctx, x, y);
+        ci_canvas_set_color(ctx, CI_STROKE_STYLE, 1.0f - inside, (float)inside, 0.0f, 1.0f);
+        ci_canvas_stroke_rectangle(ctx, x - 1.5f, y - 1.5f, 3.0f, 3.0f);
+    }
+}
+
 static void test_clear_rectangle(ci_canvas_t *ctx, float width, float height)
 {
     float y, x;
@@ -2248,6 +2352,10 @@ static test_entry const tests[] = {
     { 0x31e6112b, 256, 256, clip_winding, "clip_winding" },
     { 0xc2188d67, 256, 256, test_is_point_in_path, "is_point_in_path" },
     { 0x6505bdc9, 256, 256, is_point_in_path_offscreen, "is_point_in_path_offscreen" },
+    { 0x3a3803eb, 256, 256, fill_evenodd, "fill_evenodd" },
+    { 0x130d5578, 256, 256, fill_evenodd_star, "fill_evenodd_star" },
+    { 0x64454d62, 256, 256, clip_evenodd, "clip_evenodd" },
+    { 0xec607e9e, 256, 256, is_point_in_path_evenodd, "is_point_in_path_evenodd" },
     { 0x5e792c96, 256, 256, test_clear_rectangle, "clear_rectangle" },
     { 0x286e96fa, 256, 256, test_fill_rectangle, "fill_rectangle" },
     { 0xc2b0803d, 256, 256, test_stroke_rectangle, "stroke_rectangle" },

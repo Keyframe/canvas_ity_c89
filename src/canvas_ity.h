@@ -83,6 +83,11 @@ typedef enum ci_baseline_style {
     CI_BASELINE_IDEOGRAPHIC = 3
 } ci_baseline_style;
 
+typedef enum ci_fill_rule {
+    CI_FILL_NONZERO = 0,
+    CI_FILL_EVENODD = 1
+} ci_fill_rule_t;
+
 typedef enum ci_paint_type {
     CI_PAINT_COLOR = 0,
     CI_PAINT_LINEAR = 1,
@@ -190,6 +195,7 @@ struct ci_canvas {
     float line_dash_offset;
     ci_align_style text_align;
     ci_baseline_style text_baseline;
+    ci_fill_rule_t fill_rule;
     /* Internal fields */
     ci_backend_t const *backend;
     int size_x;
@@ -273,6 +279,7 @@ void ci_canvas_arc(ci_canvas_t *ctx, float x, float y, float radius,
 void ci_canvas_rectangle(ci_canvas_t *ctx,
     float x, float y, float width, float height);
 
+void ci_canvas_set_fill_rule(ci_canvas_t *ctx, ci_fill_rule_t rule);
 void ci_canvas_fill(ci_canvas_t *ctx);
 void ci_canvas_stroke(ci_canvas_t *ctx);
 void ci_canvas_clip(ci_canvas_t *ctx);
@@ -1975,6 +1982,21 @@ static void ci_render_shadow(ci_canvas_t *ctx,
     }
 }
 
+/* ======== FILL RULE COVERAGE ======== */
+
+/* Compute pixel coverage from accumulated winding delta.
+   Nonzero: min(|sum|, 1) — inside when winding != 0.
+   Evenodd: triangle wave with period 2 — alternates at each crossing. */
+static float ci_fill_coverage(float sum, ci_fill_rule_t rule)
+{
+    float abs_sum = ci_fabsf(sum);
+    if (rule == CI_FILL_EVENODD) {
+        float t = abs_sum - 2.0f * (float)floor((double)(abs_sum * 0.5f));
+        return t <= 1.0f ? t : 2.0f - t;
+    }
+    return CI_MIN(abs_sum, 1.0f);
+}
+
 /* ======== RENDER MAIN ======== */
 
 static void ci_render_main(ci_canvas_t *ctx,
@@ -1997,7 +2019,7 @@ static void ci_render_main(ci_canvas_t *ctx,
         ci_pixel_run_t nxt = which ?
             ctx->runs.data[path_index] :
             ctx->mask.data[clip_index];
-        float coverage = CI_MIN(ci_fabsf(path_sum), 1.0f);
+        float coverage = ci_fill_coverage(path_sum, ctx->fill_rule);
         float visibility = CI_MIN(ci_fabsf(clip_sum), 1.0f);
         int to_x = nxt.y == y_var ? nxt.x : x_var + 1;
         if ((coverage >= 1.0f / 8160.0f || ~operation & 8) &&
@@ -2085,6 +2107,7 @@ ci_canvas_t *ci_canvas_create_with_backend(int width, int height,
     ctx->line_dash_offset = 0.0f;
     ctx->text_align = CI_ALIGN_START;
     ctx->text_baseline = CI_BASELINE_ALPHABETIC;
+    ctx->fill_rule = CI_FILL_NONZERO;
     identity.a = 1.0f; identity.b = 0.0f;
     identity.c = 0.0f; identity.d = 1.0f;
     identity.e = 0.0f; identity.f = 0.0f;
@@ -2527,6 +2550,10 @@ void ci_canvas_rectangle(ci_canvas_t *ctx,
 
 /* ---- Drawing paths ---- */
 
+void ci_canvas_set_fill_rule(ci_canvas_t *ctx, ci_fill_rule_t rule) {
+    ctx->fill_rule = rule;
+}
+
 void ci_canvas_fill(ci_canvas_t *ctx) {
     ci_path_to_lines(ctx, 0);
     ctx->backend->render(ctx, &ctx->fill_brush);
@@ -2575,7 +2602,7 @@ void ci_canvas_clip(ci_canvas_t *ctx) {
             sum_1 += ctx->runs.data[index_1++].delta;
         else
             sum_2 += ctx->runs.data[index_2++].delta;
-        visibility = CI_MIN((float)fabs((double)sum_1), 1.0f) *
+        visibility = ci_fill_coverage(sum_1, ctx->fill_rule) *
                      CI_MIN((float)fabs((double)sum_2), 1.0f);
         if (visibility == last)
             continue;
@@ -2627,6 +2654,8 @@ int ci_canvas_is_point_in_path(ci_canvas_t *ctx,
             return 1;
         }
     }
+    if (ctx->fill_rule == CI_FILL_EVENODD)
+        return (winding & 1) != 0;
     return winding != 0;
 }
 
@@ -2966,6 +2995,7 @@ void ci_canvas_save(ci_canvas_t *ctx) {
     state->line_dash_offset = ctx->line_dash_offset;
     state->text_align = ctx->text_align;
     state->text_baseline = ctx->text_baseline;
+    state->fill_rule = ctx->fill_rule;
     state->forward = ctx->forward;
     state->inverse = ctx->inverse;
     state->global_alpha = ctx->global_alpha;
@@ -3012,6 +3042,7 @@ void ci_canvas_restore(ci_canvas_t *ctx) {
     ctx->line_dash_offset = state->line_dash_offset;
     ctx->text_align = state->text_align;
     ctx->text_baseline = state->text_baseline;
+    ctx->fill_rule = state->fill_rule;
     ctx->forward = state->forward;
     ctx->inverse = state->inverse;
     ctx->global_alpha = state->global_alpha;
