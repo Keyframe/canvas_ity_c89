@@ -1,4 +1,4 @@
-# canvas_ity
+# canvas_ity_c89
 
 [![Tests](https://github.com/Keyframe/canvas_ity_c89/actions/workflows/tests.yml/badge.svg)](https://github.com/Keyframe/canvas_ity_c89/actions/workflows/tests.yml)
 
