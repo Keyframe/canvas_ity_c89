@@ -153,6 +153,7 @@ typedef struct ci_font_face {
     ci_uchar_array_t data;
     int cmap;
     int glyf;
+    int gpos;
     int head;
     int hhea;
     int hmtx;
@@ -1150,11 +1151,241 @@ static int ci_character_to_glyph(ci_canvas_t *ctx,
     return 0;
 }
 
+/* ======== GPOS PAIR POSITIONING ======== */
+
+static int ci_gpos_value_size(int format)
+{
+    int size = 0;
+    int i;
+    for (i = 0; i < 8; ++i)
+        if (format & (1 << i))
+            size += 2;
+    return size;
+}
+
+static int ci_gpos_xadvance(ci_uchar_array_t *data, int offset,
+    int format)
+{
+    int pos = offset;
+    if (!(format & 0x0004))
+        return 0;
+    if (format & 0x0001) pos += 2;
+    if (format & 0x0002) pos += 2;
+    return ci_signed_16(data, pos);
+}
+
+static int ci_gpos_coverage_index(ci_uchar_array_t *data, int offset,
+    int glyph)
+{
+    int format = ci_unsigned_16(data, offset);
+    if (format == 1) {
+        int count = ci_unsigned_16(data, offset + 2);
+        int lo = 0;
+        int hi = count - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) / 2;
+            int g = ci_unsigned_16(data, offset + 4 + mid * 2);
+            if (g == glyph) return mid;
+            if (g < glyph) lo = mid + 1;
+            else hi = mid - 1;
+        }
+    } else if (format == 2) {
+        int count = ci_unsigned_16(data, offset + 2);
+        int lo = 0;
+        int hi = count - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) / 2;
+            int rec = offset + 4 + mid * 6;
+            int start = ci_unsigned_16(data, rec);
+            int end = ci_unsigned_16(data, rec + 2);
+            if (glyph < start) hi = mid - 1;
+            else if (glyph > end) lo = mid + 1;
+            else return ci_unsigned_16(data, rec + 4) + glyph - start;
+        }
+    }
+    return -1;
+}
+
+static int ci_gpos_class_value(ci_uchar_array_t *data, int offset,
+    int glyph)
+{
+    int format = ci_unsigned_16(data, offset);
+    if (format == 1) {
+        int start = ci_unsigned_16(data, offset + 2);
+        int count = ci_unsigned_16(data, offset + 4);
+        if (glyph >= start && glyph < start + count)
+            return ci_unsigned_16(data,
+                offset + 6 + (glyph - start) * 2);
+    } else if (format == 2) {
+        int count = ci_unsigned_16(data, offset + 2);
+        int lo = 0;
+        int hi = count - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) / 2;
+            int rec = offset + 4 + mid * 6;
+            int start = ci_unsigned_16(data, rec);
+            int end = ci_unsigned_16(data, rec + 2);
+            if (glyph < start) hi = mid - 1;
+            else if (glyph > end) lo = mid + 1;
+            else return ci_unsigned_16(data, rec + 4);
+        }
+    }
+    return 0;
+}
+
+static int ci_gpos_kern_value(ci_canvas_t *ctx, int left, int right)
+{
+    ci_uchar_array_t *d = &ctx->face.data;
+    int gpos, script_off, feat_off, lookup_off;
+    int n_scripts, si, lang_sys, n_feat_idx, fi;
+    int kern_feat, n_kern_lookups, li;
+    if (!ctx->face.gpos)
+        return 0;
+    gpos = ctx->face.gpos;
+    if (ci_unsigned_16(d, gpos) != 1)
+        return 0;
+    script_off = gpos + ci_unsigned_16(d, gpos + 4);
+    feat_off = gpos + ci_unsigned_16(d, gpos + 6);
+    lookup_off = gpos + ci_unsigned_16(d, gpos + 8);
+    /* find script: prefer DFLT, then latn, else first */
+    n_scripts = ci_unsigned_16(d, script_off);
+    lang_sys = 0;
+    for (si = 0; si < n_scripts; ++si) {
+        int rec = script_off + 2 + si * 6;
+        int tag = ci_signed_32(d, rec);
+        int scr = script_off + ci_unsigned_16(d, rec + 4);
+        int def_lang = ci_unsigned_16(d, scr);
+        if (tag == 0x44464c54) {
+            /* DFLT — always preferred */
+            if (def_lang) lang_sys = scr + def_lang;
+            break;
+        }
+        if (tag == 0x6c61746e && def_lang) {
+            /* latn — use if no DFLT found */
+            lang_sys = scr + def_lang;
+        }
+        if (!lang_sys && def_lang)
+            lang_sys = scr + def_lang;
+    }
+    if (!lang_sys)
+        return 0;
+    /* find 'kern' feature index in langsys */
+    kern_feat = -1;
+    n_feat_idx = ci_unsigned_16(d, lang_sys + 4);
+    for (fi = 0; fi < n_feat_idx; ++fi) {
+        int feat_idx = ci_unsigned_16(d, lang_sys + 6 + fi * 2);
+        int frec = feat_off + 2 + feat_idx * 6;
+        int ftag = ci_signed_32(d, frec);
+        if (ftag == 0x6b65726e) {
+            kern_feat = feat_idx;
+            break;
+        }
+    }
+    if (kern_feat < 0)
+        return 0;
+    /* read kern feature's lookup indices */
+    {
+        int feat_table = feat_off +
+            ci_unsigned_16(d, feat_off + 2 + kern_feat * 6 + 4);
+        n_kern_lookups = ci_unsigned_16(d, feat_table + 2);
+        for (li = 0; li < n_kern_lookups; ++li) {
+            int lookup_idx = ci_unsigned_16(d,
+                feat_table + 4 + li * 2);
+            int lookup = lookup_off +
+                ci_unsigned_16(d, lookup_off + 2 + lookup_idx * 2);
+            int ltype = ci_unsigned_16(d, lookup);
+            int n_sub = ci_unsigned_16(d, lookup + 4);
+            int subi;
+            /* handle Extension lookups (type 9) */
+            if (ltype == 9 && n_sub > 0) {
+                int ext = lookup +
+                    ci_unsigned_16(d, lookup + 6);
+                ltype = ci_unsigned_16(d, ext + 2);
+            }
+            if (ltype != 2)
+                continue;
+            for (subi = 0; subi < n_sub; ++subi) {
+                int sub_off = lookup +
+                    ci_unsigned_16(d, lookup + 6 + subi * 2);
+                int pos_fmt, cov_off, vf1, vf2, cov_idx;
+                int vr1_size, vr2_size;
+                /* resolve extension subtables */
+                if (ci_unsigned_16(d, lookup) == 9) {
+                    int ext_off = ci_signed_32(d, sub_off + 4);
+                    sub_off = sub_off + ext_off;
+                }
+                pos_fmt = ci_unsigned_16(d, sub_off);
+                cov_off = sub_off +
+                    ci_unsigned_16(d, sub_off + 2);
+                vf1 = ci_unsigned_16(d, sub_off + 4);
+                vf2 = ci_unsigned_16(d, sub_off + 6);
+                vr1_size = ci_gpos_value_size(vf1);
+                vr2_size = ci_gpos_value_size(vf2);
+                cov_idx = ci_gpos_coverage_index(d,
+                    cov_off, left);
+                if (cov_idx < 0)
+                    continue;
+                if (pos_fmt == 1) {
+                    /* format 1: individual pairs */
+                    int ps_off = sub_off +
+                        ci_unsigned_16(d,
+                            sub_off + 10 + cov_idx * 2);
+                    int n_pv = ci_unsigned_16(d, ps_off);
+                    int rec_size = 2 + vr1_size + vr2_size;
+                    int lo = 0;
+                    int hi = n_pv - 1;
+                    while (lo <= hi) {
+                        int mid = (lo + hi) / 2;
+                        int pr = ps_off + 2 + mid * rec_size;
+                        int sg = ci_unsigned_16(d, pr);
+                        if (sg == right)
+                            return ci_gpos_xadvance(d,
+                                pr + 2, vf1);
+                        if (sg < right) lo = mid + 1;
+                        else hi = mid - 1;
+                    }
+                } else if (pos_fmt == 2) {
+                    /* format 2: class-based pairs */
+                    int cd1_off = sub_off +
+                        ci_unsigned_16(d, sub_off + 8);
+                    int cd2_off = sub_off +
+                        ci_unsigned_16(d, sub_off + 10);
+                    int c1_count = ci_unsigned_16(d,
+                        sub_off + 12);
+                    int c2_count = ci_unsigned_16(d,
+                        sub_off + 14);
+                    int c1 = ci_gpos_class_value(d,
+                        cd1_off, left);
+                    int c2 = ci_gpos_class_value(d,
+                        cd2_off, right);
+                    int row_size =
+                        c2_count * (vr1_size + vr2_size);
+                    int rec_off;
+                    int val;
+                    if (c1 >= c1_count || c2 >= c2_count)
+                        continue;
+                    rec_off = sub_off + 16 +
+                        c1 * row_size +
+                        c2 * (vr1_size + vr2_size);
+                    val = ci_gpos_xadvance(d, rec_off, vf1);
+                    if (val != 0)
+                        return val;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 /* ======== KERN PAIR LOOKUP ======== */
 
 static int ci_kern_pair_value(ci_canvas_t *ctx, int left, int right)
 {
     int offset, version, n_tables, table, result;
+    /* GPOS takes precedence over legacy kern table */
+    result = ci_gpos_kern_value(ctx, left, right);
+    if (result != 0)
+        return result;
     if (!ctx->face.kern)
         return 0;
     offset = ctx->face.kern;
@@ -2977,6 +3208,7 @@ int ci_canvas_set_font(ci_canvas_t *ctx,
         ci_uchar_array_clear(&ctx->face.data);
         ctx->face.cmap = 0;
         ctx->face.glyf = 0;
+        ctx->face.gpos = 0;
         ctx->face.head = 0;
         ctx->face.hhea = 0;
         ctx->face.hmtx = 0;
@@ -3009,6 +3241,8 @@ int ci_canvas_set_font(ci_canvas_t *ctx,
             place = (int)ctx->face.data.size;
             if (tag == 0x636d6170)
                 ctx->face.cmap = place;
+            else if (tag == 0x47504f53)
+                ctx->face.gpos = place;
             else if (tag == 0x676c7966)
                 ctx->face.glyf = place;
             else if (tag == 0x68656164)
