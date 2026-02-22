@@ -2016,6 +2016,146 @@ static void test_measure_text(ci_canvas_t *ctx, float width, float height)
     ci_canvas_fill_text(ctx, "s", place, 0.2f * height, 1.0e30f);
 }
 
+/* ======== KERNING TEST HELPERS ======== */
+
+static unsigned char *make_kerned_font(
+    unsigned char const *font, int font_bytes,
+    int left_glyph, int right_glyph, int kern_value,
+    int *out_bytes)
+{
+    int orig_tables = (font[4] << 8) | font[5];
+    int orig_dir_end = 12 + orig_tables * 16;
+    int new_tables = orig_tables + 1;
+    int new_dir_end = 12 + new_tables * 16;
+    int kern_data_size = 24;
+    int body_size = font_bytes - orig_dir_end;
+    int total = new_dir_end + body_size + kern_data_size;
+    unsigned char *out = (unsigned char *)calloc(1, (size_t)total);
+    int i, kern_off, pos, sr, es, rs;
+    unsigned short kv;
+    if (!out) { *out_bytes = 0; return NULL; }
+    memcpy(out, font, 12);
+    out[4] = (unsigned char)((new_tables >> 8) & 0xff);
+    out[5] = (unsigned char)(new_tables & 0xff);
+    sr = 1; es = 0;
+    while (sr * 2 <= new_tables) { sr *= 2; ++es; }
+    sr *= 16;
+    rs = new_tables * 16 - sr;
+    out[6] = (unsigned char)((sr >> 8) & 0xff);
+    out[7] = (unsigned char)(sr & 0xff);
+    out[8] = (unsigned char)((es >> 8) & 0xff);
+    out[9] = (unsigned char)(es & 0xff);
+    out[10] = (unsigned char)((rs >> 8) & 0xff);
+    out[11] = (unsigned char)(rs & 0xff);
+    for (i = 0; i < orig_tables; ++i) {
+        int src_off = 12 + i * 16;
+        int old_off;
+        memcpy(out + 12 + i * 16, font + src_off, 16);
+        old_off = ((int)font[src_off + 8] << 24) |
+                  ((int)font[src_off + 9] << 16) |
+                  ((int)font[src_off + 10] << 8) |
+                  (int)font[src_off + 11];
+        old_off += 16;
+        out[12 + i * 16 + 8] = (unsigned char)((old_off >> 24) & 0xff);
+        out[12 + i * 16 + 9] = (unsigned char)((old_off >> 16) & 0xff);
+        out[12 + i * 16 + 10] = (unsigned char)((old_off >> 8) & 0xff);
+        out[12 + i * 16 + 11] = (unsigned char)(old_off & 0xff);
+    }
+    kern_off = new_dir_end + body_size;
+    pos = 12 + orig_tables * 16;
+    out[pos + 0] = 0x6b; out[pos + 1] = 0x65;
+    out[pos + 2] = 0x72; out[pos + 3] = 0x6e;
+    out[pos + 4] = 0; out[pos + 5] = 0;
+    out[pos + 6] = 0; out[pos + 7] = 0;
+    out[pos + 8] = (unsigned char)((kern_off >> 24) & 0xff);
+    out[pos + 9] = (unsigned char)((kern_off >> 16) & 0xff);
+    out[pos + 10] = (unsigned char)((kern_off >> 8) & 0xff);
+    out[pos + 11] = (unsigned char)(kern_off & 0xff);
+    out[pos + 12] = (unsigned char)((kern_data_size >> 24) & 0xff);
+    out[pos + 13] = (unsigned char)((kern_data_size >> 16) & 0xff);
+    out[pos + 14] = (unsigned char)((kern_data_size >> 8) & 0xff);
+    out[pos + 15] = (unsigned char)(kern_data_size & 0xff);
+    memcpy(out + new_dir_end, font + orig_dir_end, (size_t)body_size);
+    pos = kern_off;
+    out[pos + 0] = 0; out[pos + 1] = 0;
+    out[pos + 2] = 0; out[pos + 3] = 1;
+    out[pos + 4] = 0; out[pos + 5] = 0;
+    out[pos + 6] = 0; out[pos + 7] = 20;
+    out[pos + 8] = 0; out[pos + 9] = 1;
+    out[pos + 10] = 0; out[pos + 11] = 1;
+    out[pos + 12] = 0; out[pos + 13] = 6;
+    out[pos + 14] = 0; out[pos + 15] = 0;
+    out[pos + 16] = 0; out[pos + 17] = 0;
+    out[pos + 18] = (unsigned char)((left_glyph >> 8) & 0xff);
+    out[pos + 19] = (unsigned char)(left_glyph & 0xff);
+    out[pos + 20] = (unsigned char)((right_glyph >> 8) & 0xff);
+    out[pos + 21] = (unsigned char)(right_glyph & 0xff);
+    kv = (unsigned short)(kern_value & 0xffff);
+    out[pos + 22] = (unsigned char)((kv >> 8) & 0xff);
+    out[pos + 23] = (unsigned char)(kv & 0xff);
+    *out_bytes = total;
+    return out;
+}
+
+static void test_text_kerning(ci_canvas_t *ctx, float width, float height)
+{
+    int idx, glyph_c, glyph_a, kerned_size;
+    unsigned char *kerned_font;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_set_font(ctx, font_a.data, (int)font_a.size, 0.2f * height);
+    idx = 0;
+    glyph_c = ci_character_to_glyph(ctx, "C", &idx);
+    idx = 0;
+    glyph_a = ci_character_to_glyph(ctx, "a", &idx);
+    ci_canvas_fill_text(ctx, "Canvas", 0.05f * width, 0.3f * height,
+        1.0e30f);
+    kerned_font = make_kerned_font(font_a.data, (int)font_a.size,
+        glyph_c, glyph_a, -200, &kerned_size);
+    if (kerned_font) {
+        ci_canvas_set_font(ctx, kerned_font, kerned_size,
+            0.2f * height);
+        ci_canvas_fill_text(ctx, "Canvas", 0.05f * width,
+            0.7f * height, 1.0e30f);
+        free(kerned_font);
+    }
+}
+
+static void test_text_kerning_measure(ci_canvas_t *ctx,
+    float width, float height)
+{
+    int idx, glyph_c, glyph_a, kerned_size;
+    unsigned char *kerned_font;
+    float w_normal, w_kerned, bar_y;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_set_font(ctx, font_a.data, (int)font_a.size, 0.2f * height);
+    idx = 0;
+    glyph_c = ci_character_to_glyph(ctx, "C", &idx);
+    idx = 0;
+    glyph_a = ci_character_to_glyph(ctx, "a", &idx);
+    w_normal = ci_canvas_measure_text(ctx, "CaCaCa");
+    ci_canvas_fill_text(ctx, "CaCaCa", 0.05f * width, 0.25f * height,
+        1.0e30f);
+    bar_y = 0.32f * height;
+    ci_canvas_set_color(ctx, CI_FILL_STYLE, 1.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_fill_rectangle(ctx, 0.05f * width, bar_y,
+        w_normal, 4.0f);
+    kerned_font = make_kerned_font(font_a.data, (int)font_a.size,
+        glyph_c, glyph_a, -200, &kerned_size);
+    if (kerned_font) {
+        ci_canvas_set_font(ctx, kerned_font, kerned_size,
+            0.2f * height);
+        w_kerned = ci_canvas_measure_text(ctx, "CaCaCa");
+        ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 0.0f, 1.0f);
+        ci_canvas_fill_text(ctx, "CaCaCa", 0.05f * width,
+            0.65f * height, 1.0e30f);
+        bar_y = 0.72f * height;
+        ci_canvas_set_color(ctx, CI_FILL_STYLE, 0.0f, 0.0f, 1.0f, 1.0f);
+        ci_canvas_fill_rectangle(ctx, 0.05f * width, bar_y,
+            w_kerned, 4.0f);
+        free(kerned_font);
+    }
+}
+
 static void test_draw_image(ci_canvas_t *ctx, float width, float height)
 {
     unsigned char checker[1024];
@@ -2536,6 +2676,8 @@ static test_entry const tests[] = {
     { 0x70e3232d, 256, 256, test_fill_text, "fill_text" },
     { 0xed6477c8, 256, 256, test_stroke_text, "stroke_text" },
     { 0x32d1ee3b, 256, 256, test_measure_text, "measure_text" },
+    { 0x2c895307, 256, 256, test_text_kerning, "text_kerning" },
+    { 0xd9969c18, 256, 256, test_text_kerning_measure, "text_kerning_measure" },
     { 0x78cb460c, 256, 256, test_draw_image, "draw_image" },
     { 0xb530077b, 256, 256, draw_image_matted, "draw_image_matted" },
     { 0xaf04e7a2, 256, 256, test_get_image_data, "get_image_data" },
