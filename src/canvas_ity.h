@@ -166,9 +166,19 @@ typedef struct ci_line_path {
     ci_subpath_array_t subpaths;
 } ci_line_path_t;
 
-/* ======== CANVAS TYPE ======== */
+/* ======== BACKEND ABSTRACTION ======== */
 
 typedef struct ci_canvas ci_canvas_t;
+
+typedef struct ci_backend {
+    void (*render)(ci_canvas_t *ctx, ci_paint_brush_t const *brush);
+    void (*get_pixels)(ci_canvas_t *ctx, unsigned char *image,
+        int width, int height, int stride, int x, int y);
+    void (*put_pixels)(ci_canvas_t *ctx, unsigned char const *image,
+        int width, int height, int stride, int x, int y);
+} ci_backend_t;
+
+/* ======== CANVAS TYPE ======== */
 
 struct ci_canvas {
     /* Public fields (directly readable/writable) */
@@ -181,6 +191,7 @@ struct ci_canvas {
     ci_align_style text_align;
     ci_baseline_style text_baseline;
     /* Internal fields */
+    ci_backend_t const *backend;
     int size_x;
     int size_y;
     ci_affine_matrix_t forward;
@@ -207,7 +218,10 @@ struct ci_canvas {
 
 /* ======== PUBLIC API ======== */
 
+ci_backend_t const *ci_canvas_cpu_backend(void);
 ci_canvas_t *ci_canvas_create(int width, int height);
+ci_canvas_t *ci_canvas_create_with_backend(int width, int height,
+    ci_backend_t const *backend);
 void ci_canvas_destroy(ci_canvas_t *ctx);
 
 void ci_canvas_scale(ci_canvas_t *ctx, float x, float y);
@@ -658,6 +672,17 @@ static void ci_render_shadow(ci_canvas_t *ctx,
     ci_paint_brush_t const *brush);
 static void ci_render_main(ci_canvas_t *ctx,
     ci_paint_brush_t const *brush);
+static void ci_cpu_get_pixels(ci_canvas_t *ctx, unsigned char *image,
+    int width, int height, int stride, int x, int y);
+static void ci_cpu_put_pixels(ci_canvas_t *ctx,
+    unsigned char const *image,
+    int width, int height, int stride, int x, int y);
+
+static ci_backend_t const s_ci_cpu_backend = {
+    ci_render_main,
+    ci_cpu_get_pixels,
+    ci_cpu_put_pixels
+};
 
 /* ======== TESSELLATION ======== */
 
@@ -2027,15 +2052,29 @@ static void ci_canvas_free_internals(ci_canvas_t *ctx)
     ci_font_face_free(&ctx->face);
 }
 
+ci_backend_t const *ci_canvas_cpu_backend(void)
+{
+    return &s_ci_cpu_backend;
+}
+
 ci_canvas_t *ci_canvas_create(int width, int height)
+{
+    return ci_canvas_create_with_backend(width, height,
+        &s_ci_cpu_backend);
+}
+
+ci_canvas_t *ci_canvas_create_with_backend(int width, int height,
+    ci_backend_t const *backend)
 {
     ci_canvas_t *ctx;
     ci_affine_matrix_t identity;
     unsigned short y;
     if (width < 1 || width > 32768 || height < 1 || height > 32768)
         return NULL;
+    if (!backend) return NULL;
     ctx = (ci_canvas_t *)calloc(1, sizeof(ci_canvas_t));
     if (!ctx) return NULL;
+    ctx->backend = backend;
     ctx->size_x = width;
     ctx->size_y = height;
     ctx->global_composite_operation = CI_SOURCE_OVER;
@@ -2490,13 +2529,13 @@ void ci_canvas_rectangle(ci_canvas_t *ctx,
 
 void ci_canvas_fill(ci_canvas_t *ctx) {
     ci_path_to_lines(ctx, 0);
-    ci_render_main(ctx, &ctx->fill_brush);
+    ctx->backend->render(ctx, &ctx->fill_brush);
 }
 
 void ci_canvas_stroke(ci_canvas_t *ctx) {
     ci_path_to_lines(ctx, 1);
     ci_stroke_lines(ctx);
-    ci_render_main(ctx, &ctx->stroke_brush);
+    ctx->backend->render(ctx, &ctx->stroke_brush);
 }
 
 void ci_canvas_clip(ci_canvas_t *ctx) {
@@ -2629,7 +2668,7 @@ void ci_canvas_fill_rectangle(ci_canvas_t *ctx,
         ci_affine_mul(ctx->forward, ci_xy_make(x, y + h)));
     entry = ci_subpath_make(4, 1);
     ci_subpath_array_push(&ctx->lines.subpaths, entry);
-    ci_render_main(ctx, &ctx->fill_brush);
+    ctx->backend->render(ctx, &ctx->fill_brush);
 }
 
 void ci_canvas_stroke_rectangle(ci_canvas_t *ctx,
@@ -2664,7 +2703,7 @@ void ci_canvas_stroke_rectangle(ci_canvas_t *ctx,
         ci_subpath_array_push(&ctx->lines.subpaths, entry);
     }
     ci_stroke_lines(ctx);
-    ci_render_main(ctx, &ctx->stroke_brush);
+    ctx->backend->render(ctx, &ctx->stroke_brush);
 }
 
 /* ---- Text ---- */
@@ -2749,7 +2788,7 @@ void ci_canvas_fill_text(ci_canvas_t *ctx,
     char const *text, float x, float y, float max_width)
 {
     ci_text_to_lines(ctx, text, ci_xy_make(x, y), max_width, 0);
-    ci_render_main(ctx, &ctx->fill_brush);
+    ctx->backend->render(ctx, &ctx->fill_brush);
 }
 
 void ci_canvas_stroke_text(ci_canvas_t *ctx,
@@ -2757,7 +2796,7 @@ void ci_canvas_stroke_text(ci_canvas_t *ctx,
 {
     ci_text_to_lines(ctx, text, ci_xy_make(x, y), max_width, 1);
     ci_stroke_lines(ctx);
-    ci_render_main(ctx, &ctx->stroke_brush);
+    ctx->backend->render(ctx, &ctx->stroke_brush);
 }
 
 float ci_canvas_measure_text(ci_canvas_t *ctx,
@@ -2824,12 +2863,12 @@ void ci_canvas_draw_image(ci_canvas_t *ctx,
     ci_canvas_scale(ctx,
         (float)fabs((double)to_width) / (float)width,
         (float)fabs((double)to_height) / (float)height);
-    ci_render_main(ctx, &ctx->image_brush);
+    ctx->backend->render(ctx, &ctx->image_brush);
     ctx->forward = saved_fwd;
     ctx->inverse = saved_inv;
 }
 
-void ci_canvas_get_image_data(ci_canvas_t *ctx,
+static void ci_cpu_get_pixels(ci_canvas_t *ctx,
     unsigned char *image,
     int width, int height, int stride,
     int x, int y)
@@ -2841,8 +2880,6 @@ void ci_canvas_get_image_data(ci_canvas_t *ctx,
         { 0.96875f, 0.46875f, 0.84375f, 0.34375f }
     };
     int img_y, img_x;
-    if (!image)
-        return;
     for (img_y = 0; img_y < height; ++img_y)
         for (img_x = 0; img_x < width; ++img_x) {
             int idx = img_y * stride + img_x * 4;
@@ -2868,14 +2905,12 @@ void ci_canvas_get_image_data(ci_canvas_t *ctx,
         }
 }
 
-void ci_canvas_put_image_data(ci_canvas_t *ctx,
+static void ci_cpu_put_pixels(ci_canvas_t *ctx,
     unsigned char const *image,
     int width, int height, int stride,
     int x, int y)
 {
     int img_y, img_x;
-    if (!image)
-        return;
     for (img_y = 0; img_y < height; ++img_y)
         for (img_x = 0; img_x < width; ++img_x) {
             int idx = img_y * stride + img_x * 4;
@@ -2893,6 +2928,26 @@ void ci_canvas_put_image_data(ci_canvas_t *ctx,
             ctx->bitmap[cy * ctx->size_x + cx] =
                 ci_premultiplied(ci_linearized(color));
         }
+}
+
+void ci_canvas_get_image_data(ci_canvas_t *ctx,
+    unsigned char *image,
+    int width, int height, int stride,
+    int x, int y)
+{
+    if (!image)
+        return;
+    ctx->backend->get_pixels(ctx, image, width, height, stride, x, y);
+}
+
+void ci_canvas_put_image_data(ci_canvas_t *ctx,
+    unsigned char const *image,
+    int width, int height, int stride,
+    int x, int y)
+{
+    if (!image)
+        return;
+    ctx->backend->put_pixels(ctx, image, width, height, stride, x, y);
 }
 
 /* ---- State stack ---- */
