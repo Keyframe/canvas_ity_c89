@@ -916,6 +916,55 @@ static void test_radial_gradient(ci_canvas_t *ctx, float width, float height)
     ci_canvas_fill(ctx);
 }
 
+static void test_conic_gradient(ci_canvas_t *ctx, float width, float height)
+{
+    float cx = 0.5f * width;
+    float cy = 0.5f * height;
+    float radius = CI_MINF(width, height) * 0.4f;
+    /* basic conic gradient: color wheel */
+    ci_canvas_set_conic_gradient(ctx, CI_FILL_STYLE, 0.0f, cx, cy);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE, 0.333f, 0.0f, 1.0f, 0.0f, 1.0f);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE, 0.667f, 0.0f, 0.0f, 1.0f, 1.0f);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_arc(ctx, cx, cy, radius, 0.0f, 6.28318531f, 0);
+    ci_canvas_close_path(ctx);
+    ci_canvas_fill(ctx);
+    /* conic gradient on stroke with offset start angle */
+    ci_canvas_set_conic_gradient(ctx, CI_STROKE_STYLE,
+        1.57079633f, cx, cy);
+    ci_canvas_add_color_stop(ctx, CI_STROKE_STYLE,
+        0.0f, 1.0f, 1.0f, 0.0f, 1.0f);
+    ci_canvas_add_color_stop(ctx, CI_STROKE_STYLE,
+        1.0f, 0.0f, 1.0f, 1.0f, 1.0f);
+    ci_canvas_set_line_width(ctx, 16.0f);
+    ci_canvas_stroke(ctx);
+}
+
+static void conic_gradient_rect(ci_canvas_t *ctx, float width, float height)
+{
+    /* conic gradient filling a full rectangle */
+    ci_canvas_set_conic_gradient(ctx, CI_FILL_STYLE,
+        0.0f, 0.5f * width, 0.5f * height);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE,
+        0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE,
+        0.5f, 1.0f, 1.0f, 1.0f, 1.0f);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE,
+        1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+    ci_canvas_fill_rectangle(ctx, 0.0f, 0.0f, width, height);
+    /* offset start angle half-circle */
+    ci_canvas_set_conic_gradient(ctx, CI_FILL_STYLE,
+        3.14159265f, 0.5f * width, 0.5f * height);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE,
+        0.0f, 1.0f, 0.0f, 0.0f, 0.8f);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE,
+        0.5f, 0.0f, 0.0f, 1.0f, 0.8f);
+    ci_canvas_add_color_stop(ctx, CI_FILL_STYLE,
+        1.0f, 1.0f, 0.0f, 0.0f, 0.8f);
+    ci_canvas_fill_rectangle(ctx, 0.0f, 0.0f, width, 0.5f * height);
+}
+
 static void test_color_stop(ci_canvas_t *ctx, float width, float height)
 {
     ci_canvas_add_color_stop(ctx, CI_FILL_STYLE, 0.5f, 1.0f, 0.0f, 1.0f, 1.0f);
@@ -2328,6 +2377,8 @@ static test_entry const tests[] = {
     { 0xeb4338e8, 256, 256, test_color, "color" },
     { 0x6dc35a07, 256, 256, test_linear_gradient, "linear_gradient" },
     { 0x418fe678, 256, 256, test_radial_gradient, "radial_gradient" },
+    { 0xd5dc2c85, 256, 256, test_conic_gradient, "conic_gradient" },
+    { 0x3eda353a, 256, 256, conic_gradient_rect, "conic_gradient_rect" },
     { 0x67aada11, 256, 256, test_color_stop, "color_stop" },
     { 0xc6c721d6, 256, 256, test_pattern, "pattern" },
     { 0xb0b391cd, 256, 256, test_begin_path, "begin_path" },
