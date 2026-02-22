@@ -1,0 +1,2 @@
+cc1plus: error: command-line option ‘-std=c90’ is valid for C/ObjC but not for C++ [-Werror]
+cc1plus: all warnings being treated as errors

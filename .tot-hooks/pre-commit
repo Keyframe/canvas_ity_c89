@@ -1,0 +1,123 @@
+#!/bin/bash
+set -euo pipefail
+
+# TOT Pre-Commit Hook
+# Chains with existing hooks, then enforces TOT rules on tot/* branches.
+# Baseline-aware: tolerates pre-existing test/lint failures.
+
+PROJ_DIR="$(git rev-parse --show-toplevel)"
+cd "$PROJ_DIR"
+
+# ─── Chain with original hooks ───
+ORIGINAL_HOOKS=""
+if [ -n "$ORIGINAL_HOOKS" ] && [ -f "$PROJ_DIR/.tot-hooks/original-pre-commit" ]; then
+    echo "=== Running original pre-commit hook ==="
+    "$PROJ_DIR/.tot-hooks/original-pre-commit" || exit 1
+fi
+
+# ─── Only enforce TOT rules on tot/* branches ───
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [[ "$BRANCH" != tot/* ]]; then
+    exit 0
+fi
+
+# ─── Extract WI number from branch name ───
+# Supports: tot/<type>/WI-NNN-desc and legacy tot/WI-NNN-desc
+WI_NUM=$(echo "$BRANCH" | grep -oP 'WI-\K[0-9]+' | head -1)
+
+# BLOCK if on a tot/ branch but can't extract WI number
+if [ -z "$WI_NUM" ]; then
+    echo "BLOCKED: On a tot/ branch but could not extract WI number from '$BRANCH'."
+    echo "Branch must match: tot/<type>/WI-NNN-description"
+    echo "  e.g. tot/feat/WI-001-auth-middleware"
+    echo "Use: make -f Makefile.tot tot-start WI=NNN TYPE=feat"
+    exit 1
+fi
+
+# BLOCK if no active state file exists for this WI
+if [ ! -f "$PROJ_DIR/.tot/active/WI-${WI_NUM}.state" ]; then
+    echo "BLOCKED: No active state file for WI-${WI_NUM}."
+    echo "The WI must be started via: make -f Makefile.tot tot-start WI=${WI_NUM}"
+    exit 1
+fi
+
+# ─── Skip test/lint if called from tot-commit (file-based mutex) ───
+if [ -f "$PROJ_DIR/.tot/.commit-in-progress" ]; then
+    echo "=== Skipping test/lint (already run by tot-commit) ==="
+else
+    # ─── Gate 1: Tests (baseline-aware) ───
+    echo "=== Gate 1: Running tests ==="
+    set +e
+    make test
+    TEST_EXIT=$?
+    set -e
+
+    if [ $TEST_EXIT -eq 0 ]; then
+        echo "Tests passed."
+    elif [ -f "$PROJ_DIR/.tot/baseline-test-exitcode" ] && [ "$(cat "$PROJ_DIR/.tot/baseline-test-exitcode")" != "0" ]; then
+        echo "WARNING: Tests failed (exit $TEST_EXIT) but baseline also failed. Tolerating pre-existing failures."
+    else
+        echo "BLOCKED: Tests failed (exit $TEST_EXIT)."
+        exit 1
+    fi
+
+    # ─── Gate 2: Lint (baseline-aware) ───
+    echo "=== Gate 2: Running lint ==="
+    set +e
+    gcc -std=c89 -Wall -Wextra -Wpedantic -Werror -fsyntax-only src/canvas_ity.h
+    LINT_EXIT=$?
+    set -e
+
+    if [ $LINT_EXIT -eq 0 ]; then
+        echo "Lint passed."
+    elif [ -f "$PROJ_DIR/.tot/baseline-lint-exitcode" ] && [ "$(cat "$PROJ_DIR/.tot/baseline-lint-exitcode")" != "0" ]; then
+        echo "WARNING: Lint failed (exit $LINT_EXIT) but baseline also failed. Tolerating pre-existing findings."
+    else
+        echo "BLOCKED: Lint failed (exit $LINT_EXIT)."
+        exit 1
+    fi
+fi
+
+# ─── Gate 3: Scope enforcement ───
+echo "=== Gate 3: Scope check ==="
+
+# Read declared scope
+SCOPE_RAW=$(grep "^SCOPE:" "$PROJ_DIR/.tot/active/WI-${WI_NUM}.state" | head -1 | sed 's/^SCOPE:[[:space:]]*//')
+EXPANDED_RAW=$(grep "^SCOPE_EXPANDED:" "$PROJ_DIR/.tot/active/WI-${WI_NUM}.state" | sed 's/^SCOPE_EXPANDED:[[:space:]]*//' || true)
+
+# Build list of allowed directories (one per line)
+ALL_ALLOWED=$(printf '%s\n%s' "$SCOPE_RAW" "$EXPANDED_RAW" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$')
+
+STAGED=$(git diff --cached --name-only)
+for FILE in $STAGED; do
+    # Allow .tot/ state and doc files
+    if [[ "$FILE" == .tot/* ]]; then
+        continue
+    fi
+
+    # BLOCK modifications to enforcement infrastructure
+    if [[ "$FILE" == "Makefile.tot" ]] || [[ "$FILE" == .tot-hooks/* ]]; then
+        echo "BLOCKED: $FILE is enforcement infrastructure and cannot be modified on WI branches."
+        exit 1
+    fi
+
+    ALLOWED=false
+    while IFS= read -r DIR; do
+        [ -z "$DIR" ] && continue
+        if [[ "$FILE" == "$DIR"* ]]; then
+            ALLOWED=true
+            break
+        fi
+    done <<< "$ALL_ALLOWED"
+
+    if [ "$ALLOWED" = false ]; then
+        echo "BLOCKED: $FILE is outside declared scope for WI-${WI_NUM}."
+        echo "Declared scope: $SCOPE_RAW"
+        echo "To expand scope: make -f Makefile.tot tot-expand-scope WI=$WI_NUM DIR=<dir> REASON=\"<justification>\""
+        exit 1
+    fi
+done
+
+echo "Scope check passed."
+
+echo "=== All TOT pre-commit gates passed ==="
