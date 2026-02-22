@@ -341,6 +341,13 @@ CMake with a plain Makefile.
   spec.  Supports independent x/y radii and an arbitrary rotation angle.
   The original C++ library only provides circular `arc()`.
 
+- **Round rectangles** — `ci_canvas_round_rectangle(ctx, x, y, w, h, radii, count)`
+  adds a rounded rectangle to the current path, per the WHATWG
+  `roundRect()` spec.  Accepts 1–4 radii following CSS `border-radius`
+  shorthand (UL, UR, LR, LL).  Radii are uniformly scaled when they
+  exceed edge lengths.  The original C++ library does not provide
+  `roundRect()`.
+
 ## License
 
 [ISC](LICENSE.txt) -- same as the original.

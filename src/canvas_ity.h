@@ -285,6 +285,9 @@ void ci_canvas_ellipse(ci_canvas_t *ctx,
     int counter_clockwise);
 void ci_canvas_rectangle(ci_canvas_t *ctx,
     float x, float y, float width, float height);
+void ci_canvas_round_rectangle(ci_canvas_t *ctx,
+    float x, float y, float width, float height,
+    float const *radii, int radii_count);
 
 void ci_canvas_set_fill_rule(ci_canvas_t *ctx, ci_fill_rule_t rule);
 void ci_canvas_fill(ci_canvas_t *ctx);
@@ -2632,6 +2635,70 @@ void ci_canvas_rectangle(ci_canvas_t *ctx,
     ci_canvas_line_to(ctx, x + w, y);
     ci_canvas_line_to(ctx, x + w, y + h);
     ci_canvas_line_to(ctx, x, y + h);
+    ci_canvas_close_path(ctx);
+}
+
+void ci_canvas_round_rectangle(ci_canvas_t *ctx,
+    float x, float y, float w, float h,
+    float const *radii, int radii_count)
+{
+    float r[4];
+    float scale, s, tmp;
+    if (!radii || radii_count < 1 || radii_count > 4)
+        return;
+    /* Expand radii per CSS border-radius convention:
+       r[0]=UL  r[1]=UR  r[2]=LR  r[3]=LL */
+    switch (radii_count) {
+        case 1: r[0] = r[1] = r[2] = r[3] = radii[0]; break;
+        case 2: r[0] = r[2] = radii[0]; r[1] = r[3] = radii[1]; break;
+        case 3: r[0] = radii[0]; r[1] = r[3] = radii[1];
+                r[2] = radii[2]; break;
+        case 4: r[0] = radii[0]; r[1] = radii[1];
+                r[2] = radii[2]; r[3] = radii[3]; break;
+        default: return;
+    }
+    /* Clamp negative radii to zero */
+    if (r[0] < 0.0f) r[0] = 0.0f;
+    if (r[1] < 0.0f) r[1] = 0.0f;
+    if (r[2] < 0.0f) r[2] = 0.0f;
+    if (r[3] < 0.0f) r[3] = 0.0f;
+    /* Normalize negative dimensions, remapping corner radii */
+    if (w < 0.0f) {
+        x += w; w = -w;
+        tmp = r[0]; r[0] = r[1]; r[1] = tmp;
+        tmp = r[3]; r[3] = r[2]; r[2] = tmp;
+    }
+    if (h < 0.0f) {
+        y += h; h = -h;
+        tmp = r[0]; r[0] = r[3]; r[3] = tmp;
+        tmp = r[1]; r[1] = r[2]; r[2] = tmp;
+    }
+    /* Scale radii uniformly if they exceed edge lengths */
+    scale = 1.0f;
+    if (r[0] + r[1] > 0.0f) {
+        s = w / (r[0] + r[1]); if (s < scale) scale = s;
+    }
+    if (r[1] + r[2] > 0.0f) {
+        s = h / (r[1] + r[2]); if (s < scale) scale = s;
+    }
+    if (r[2] + r[3] > 0.0f) {
+        s = w / (r[2] + r[3]); if (s < scale) scale = s;
+    }
+    if (r[3] + r[0] > 0.0f) {
+        s = h / (r[3] + r[0]); if (s < scale) scale = s;
+    }
+    if (scale < 1.0f) {
+        r[0] *= scale; r[1] *= scale;
+        r[2] *= scale; r[3] *= scale;
+    }
+    /* Trace rounded rectangle path:
+       top edge -> UR arc -> right edge -> LR arc ->
+       bottom edge -> LL arc -> left edge -> UL arc */
+    ci_canvas_move_to(ctx, x + r[0], y);
+    ci_canvas_arc_to(ctx, x + w, y,     x + w, y + h, r[1]);
+    ci_canvas_arc_to(ctx, x + w, y + h, x,     y + h, r[2]);
+    ci_canvas_arc_to(ctx, x,     y + h, x,     y,     r[3]);
+    ci_canvas_arc_to(ctx, x,     y,     x + w, y,     r[0]);
     ci_canvas_close_path(ctx);
 }
 
