@@ -1640,8 +1640,8 @@ static ci_rgba_t ci_paint_pixel(ci_canvas_t *ctx, ci_xy_t point,
             ci_fabsf(ctx->inverse.c);
         scale_y = ci_fabsf(ctx->inverse.b) +
             ci_fabsf(ctx->inverse.d);
-        scale_x = CI_CLAMP(scale_x, 1.0f, w * 0.25f);
-        scale_y = CI_CLAMP(scale_y, 1.0f, h * 0.25f);
+        scale_x = CI_MAX(1.0f, CI_MIN(scale_x, w * 0.25f));
+        scale_y = CI_MAX(1.0f, CI_MIN(scale_y, h * 0.25f));
         reciprocal_x = 1.0f / scale_x;
         reciprocal_y = 1.0f / scale_y;
         point = ci_xy_sub(point, ci_xy_make(0.5f, 0.5f));
