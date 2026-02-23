@@ -315,6 +315,27 @@ Or compile directly:
 gcc -std=c89 -O2 -I src -o test_runner test/test.c -lm
 ```
 
+## WASM / Browser Comparison
+
+The library can be compiled to WebAssembly with [Emscripten](https://emscripten.org/)
+for side-by-side comparison against the browser's native HTML5 Canvas 2D.
+
+```
+make wasm     # build test/canvas_ity.js + test/canvas_ity.wasm
+```
+
+Then serve the project root and open `test/test.html`:
+```
+python3 -m http.server 8000
+# open http://localhost:8000/test/test.html
+```
+
+Each test renders the same scene twice: once with the browser's Canvas 2D
+(left) and once with canvas_ity via WASM (right).  Differences are expected
+since canvas_ity uses its own software rasterizer.
+
+![WASM test comparison](test/wasm_test.png)
+
 ## Acknowledgments
 
 This library is a C89 rework of the original C++ [canvas_ity](https://github.com/a-e-k/canvas_ity)
